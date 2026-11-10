@@ -978,6 +978,14 @@ static void gui_loop(void)
     mouse_down = mouse_was_down = 0;
     cursor_bg_x = cursor_bg_y = -1;
     for (int i = 0; i < WIN_MAX; ++i) wins[i].alive = 0;
+    /* 测试用：\wct\autoterm 存在时开机自动开一个终端窗口 */
+    {
+        EFI_FILE_PROTOCOL *f = NULL;
+        if (open_path(L"\\wct\\autoterm", &f, EFI_FILE_MODE_READ, 0)) {
+            f->Close(f);
+            win_open(WIN_TERM);
+        }
+    }
     dframe_end();
     int dirty = 1, force_full = 1;
 
