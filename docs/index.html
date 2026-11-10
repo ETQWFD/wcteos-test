@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wcteos 测试版 - 自研内核与桌面</title>
+<style>
+:root{--paper:#e2ded4;--ink:#262422;--line:#c9c2b4;--accent:#34568a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+font:15px/1.75 -apple-system,"Noto Sans SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:880px;margin:0 auto;padding:56px 20px 72px}
+h1{font-size:30px;font-weight:600;margin:0 0 6px;letter-spacing:.5px}
+.sub{color:#6b6559;font-size:14px;margin-bottom:36px}
+h2{font-size:19px;margin:40px 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+p{margin:10px 0}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(52,86,138,.35)}
+a:hover{border-bottom-color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:14px}
+.card{background:#ece8de;border:1px solid var(--line);padding:14px 16px}
+.card b{display:block;font-weight:600;margin-bottom:4px;color:var(--accent)}
+.card span{font-size:13.5px;color:#57534a}
+pre{background:#e7e2d6;border:1px solid var(--line);padding:12px 14px;overflow:auto;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
+td,th{border:1px solid var(--line);padding:9px 11px;text-align:left}
+th{background:#e7e2d6;font-weight:600}
+img{width:100%;border:1px solid var(--line);background:#fff;display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+.foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:#6b6559;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>wcteos 测试版</h1>
+<div class="sub">0.9-test · 自研 x86_64 / ia32 UEFI 内核，自带引导、桌面与驱动，不依赖 Linux</div>
+
+<p>wcteos 是一个从零写起的小系统：没有 Linux 内核、没有 GRUB、没有桌面环境框架。开机由固件直接加载 <code>BOOTX64.EFI</code>，内核自己枚举 PCI、初始化磁盘与网卡、建立进程表、绘制桌面。全部代码是 C，编译成单个 EFI 可执行文件。</p>
+
+<h2>当前能力</h2>
+<div class="grid">
+  <div class="card"><b>原生引导</b><span>UEFI 直接引导，FAT32 分区内放 EFI + /wct 负载即可启动，也提供可写的 U 盘镜像。</span></div>
+  <div class="card"><b>自绘桌面</span><span>纸片主题，桌面图标可双击，任务栏含开始菜单、窗口按钮、音量、网络、数字时钟。</span></div>
+  <div class="card"><b>真实进程表</b><span>16 项内核进程表，任务管理器可选中进程并结束（内核进程受保护），支持新建进程。</span></div>
+  <div class="card"><b>网卡驱动</b><span>Intel e1000 与 Realtek 8139 双驱动，实测 ARP 收发成功，托盘显示有线连接状态。</span></div>
+  <div class="card"><b>PS/2 鼠标</b><span>i8042 正确初始化，固件不提供指针协议时自动兜底，光标为黑色箭头。</span></div>
+  <div class="card"><b>中文点阵</b><span>557 个 16×16 中文字形预生成进内核，界面全中文，不依赖运行时字体文件。</span></div>
+  <div class="card"><b>壁纸与主题</b><span>六档主题配色、六种壁纸（纯色/渐变/网格/动态 .glf/纸纹/星夜），可即时切换。</span></div>
+  <div class="card"><b>文件关联</span><span>.wct 可执行、.wet 脚本、.dwc 依赖声明，双击或在运行框输入即可执行。</span></div>
+</div>
+
+<h2>界面</h2>
+<div class="grid2">
+  <div><img src="assets/shot-desktop.png" alt="桌面"><p class="sub">桌面图标与任务栏</p></div>
+  <div><img src="assets/shot-net.png" alt="网络面板"><p class="sub">托盘网络面板</p></div>
+  <div><img src="assets/shot-taskmgr.png" alt="任务管理器"><p class="sub">任务管理器与结束进程</p></div>
+  <div><img src="assets/shot-settings.png" alt="设置"><p class="sub">主题与壁纸设置</p></div>
+</div>
+
+<h2>下载</h2>
+<table>
+<tr><th>文件</th><th>说明</th></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test/releases">wcteos-0.9-test.iso</a></td><td>UEFI 光盘镜像，可刻盘或挂到虚拟机光驱</td></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test/releases">wcteos-0.9-test-usb.img</a></td><td>48MB FAT32 镜像，dd 到 U 盘即可启动</td></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test">源码与内核代码</a></td><td>全部 C 源码、编译脚本、构建说明</td></tr>
+</table>
+
+<h2>自己编译</h2>
+<pre>sudo apt install gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 mtools dosfstools xorriso
+x86_64-w64-mingw32-gcc -ffreestanding -fno-stack-protector -fno-builtin \
+  -mno-red-zone -O2 -Ikernel -c kernel/kernel.c -o kernel.o
+x86_64-w64-mingw32-gcc -nostdlib -Wl,--subsystem,10 -Wl,-e,efi_main \
+  -Wl,--image-base=0x10000000 -Wl,--enable-reloc-section -Wl,--gc-sections \
+  -o BOOTX64.EFI kernel.o -lgcc</pre>
+<p>把 <code>BOOTX64.EFI</code> 放到 FAT32 分区的 <code>\EFI\BOOT\</code> 下即可引导。桌面资源放在 <code>\wct\</code>：<code>wall\default.glf</code> 为动态壁纸，<code>autogui</code> 存在时开机直进桌面。</p>
+
+<h2>文件类型</h2>
+<table>
+<tr><th>后缀</th><th>含义</th></tr>
+<tr><td>.wct</td><td>可执行程序，内核加载后运行</td></tr>
+<tr><td>.wet</td><td>一键脚本，等价于 .bat / .sh</td></tr>
+<tr><td>.dwc</td><td>依赖声明，等价于 .dll 的系统文件与依赖描述</td></tr>
+<tr><td>.wcte</td><td>压缩包格式，配 WCTE-Compressor 打包与解包</td></tr>
+</table>
+
+<h2>说明</h2>
+<p>当前为测试版。已实测：纸片中文桌面启动、PS/2 鼠标初始化、e1000 与 rtl8139 网卡 ARP 收发、任务管理器结束进程、壁纸切换、ISO 与 U 盘镜像引导。音频仅完成 HDA 控制器初始化，codec 未响应，播放通路尚未打通；无线网卡未内置驱动，托盘会如实显示未检测到无线网卡。</p>
+
+<div class="foot">仓库：<a href="https://github.com/ETQWFD/wcteos-test">github.com/ETQWFD/wcteos-test</a> · 内核代码：<a href="https://github.com/ETQWFD/wct-kernel">wct-kernel</a></div>
+</div>
+</body>
+</html>
