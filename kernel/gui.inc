@@ -1,24 +1,26 @@
 #include "font8x16.h"
+#include "wct_zh.h"
 
-/* WCT-OS windowed GUI: GOP, built-in font, native USB HID boot mouse,
-   Simple/Absolute pointer fallback, draggable overlapping windows. */
+/* WCT-OS windowed GUI with Win95-style drag-outline.
 
-typedef struct {
-    UINT8 RequestType, Request;
-    UINT16 Value, Index, Length;
-} UsbDeviceRequest;
+   Mouse priority:
+     1) EFI_SIMPLE_POINTER_PROTOCOL
+     2) EFI_ABSOLUTE_POINTER_PROTOCOL
+     3) EFI_USB_IO_PROTOCOL HID boot (last resort)
 
+   Drag: window stays put, a 1px white outline follows the mouse; the window
+   is actually moved (and one full redraw happens) only when the button is
+   released. F11 toggles X/Y inversion for firmware that reports them reversed. */
+
+typedef struct { UINT8 RequestType, Request; UINT16 Value, Index, Length; } UsbDeviceRequest;
 typedef struct __attribute__((packed)) {
     UINT8 Length, DescriptorType, InterfaceNumber, AlternateSetting, NumEndpoints;
     UINT8 InterfaceClass, InterfaceSubClass, InterfaceProtocol, Interface;
 } UsbInterfaceDescriptor;
-
 typedef struct __attribute__((packed)) {
     UINT8 Length, DescriptorType, EndpointAddress, Attributes;
-    UINT16 MaxPacketSize;
-    UINT8 Interval;
+    UINT16 MaxPacketSize; UINT8 Interval;
 } UsbEndpointDescriptor;
-
 typedef struct EFI_USB_IO_PROTOCOL EFI_USB_IO_PROTOCOL;
 struct EFI_USB_IO_PROTOCOL {
     EFI_STATUS (EFIAPI *UsbControlTransfer)(EFI_USB_IO_PROTOCOL *, UsbDeviceRequest *, UINT32, UINT32, VOID *, UINTN, UINT32 *);
@@ -36,6 +38,19 @@ struct EFI_USB_IO_PROTOCOL {
     EFI_STATUS (EFIAPI *UsbPortReset)(EFI_USB_IO_PROTOCOL *);
 };
 
+#define USB_ERR_STALL    0x02
+#define USB_ERR_BUFFER   0x04
+#define USB_ERR_BABBLE   0x08
+#define USB_ERR_NAK      0x10
+#define USB_ERR_CRC      0x20
+#define USB_ERR_TIMEOUT  0x40
+#define USB_ERR_BITSTUFF 0x80
+#define USB_ERR_SYSTEM   0x100
+
+#ifndef GUI_DEBUG
+#define GUI_DEBUG 0
+#endif
+
 static EFI_GRAPHICS_OUTPUT_PROTOCOL *gfx;
 static EFI_SIMPLE_POINTER_PROTOCOL *mouse;
 static EFI_ABSOLUTE_POINTER_PROTOCOL *abs_ptr;
@@ -46,44 +61,80 @@ static UINT32 *gfx_fb, *gfx_hw, *gfx_back;
 static UINTN gfx_w, gfx_h, gfx_stride;
 static UINT32 gfx_bg, gfx_top, gfx_panel, gfx_text_c, gfx_dim, gfx_accent;
 static UINTN gfx_original_mode;
-static int mouse_x, mouse_y, mouse_down, mouse_was_down, mouse_click, mouse_moved;
+static int mouse_x, mouse_y, mouse_down, mouse_was_down, mouse_click, mouse_moved, mouse_wheel;
+static int mouse_rclick, mouse_rwas;
 static int gfx_done;
 
-#define GFX_DESKTOP 0
+/* F11: mirror X/Y for firmware that reports them inverted. */
+static int invert_mouse = 0;
+
+/* Cursor incremental drawing. */
+static UINT32 cursor_bg[16][10];
+static int cursor_bg_x = -1, cursor_bg_y = -1;
+
+/* Clip rect (used by draw_region). */
+static int clip_x0 = 0, clip_y0 = 0, clip_x1 = 0, clip_y1 = 0;
+static int clip_enabled = 0;
+
 #define WIN_FILES 0
 #define WIN_TERM 1
-#define WIN_SETTINGS 2
-#define WIN_SETTINGS 2
+#define WIN_EDIT 2
 #define WIN_MAX 4
 #define WIN_MAX_LINES 12
+#define WIN_VIEW_LINES 24
 #define WIN_COLS 68
 #define WIN_ENTRIES 32
 typedef struct { CHAR16 name[64]; int dir; UINT64 size; } GuiEnt;
 
 typedef struct {
-    int type;
-    int x, y, w, h, z;
-    int alive;
+    int type, x, y, w, h, z, alive;
     char input[96];
     int input_len;
     char text[WIN_MAX_LINES][WIN_COLS + 1];
-    int trow, tcol;
+    int trow, tcol, scroll;
     GuiEnt entries[WIN_ENTRIES];
-    int entry_count;
-    int loaded;
+    int entry_count, loaded;
+    char edit[80][80];
+    int edit_lines, edit_row, edit_col;
+    CHAR16 edit_path[256];
+    int edit_loaded;
+    int sel;                 /* 文件管理器选中行，-1 表示未选 */
+    int prop_show;           /* 属性面板是否展开 */
+    int prop_msg;            /* 0=属性 1=删除成功 2=拒绝访问 3=删除失败 */
 } GuiWin;
 
 static GuiWin wins[WIN_MAX];
+
+/* wcteos 桌面外壳层（实现见 wcteos_ui.inc） */
+static void wct_ui_draw(void);
+static int  wct_ui_click(void);
+static int  wct_ui_key(EFI_INPUT_KEY *key);
+static void wct_ui_bg(void);
+static void ui_tray_draw(void);
+static int ui_tray_click(void);
+static int ui_icon_click(void);
+static int net_link_up(void);
+static const char *net_short_status(void);
+static void ui_open_taskmgr(void);
+static void ui_next_wallpaper(void);
+static void wct_ui_open_file(const CHAR16 *path);
+static int  wct_ui_demo(void);
+static void wct_ui_demo_start(void);
 static GuiWin *gfx_term_target;
-static int focus_win = -1;
-static int z_top = 10;
-static int dragging = -1;
-static int drag_dx, drag_dy;
+static int focus_win = -1, z_top = 10;
+static int dragging = -1, drag_dx, drag_dy;
+
+/* ---------- Win95 drag outline ---------- */
+static int df_active = 0;
+static int df_x, df_y, df_w, df_h;
+static UINT32 *df_top_bg, *df_bottom_bg, *df_left_bg, *df_right_bg;
+
+/* ---------- framebuffer ---------- */
 
 static UINT32 gfx_rgb(UINT8 r, UINT8 g, UINT8 b)
 {
-    /* PixelFormat 0 = RedGreenBlueReserved(字节序 R,G,B → 值 B<<16|G<<8|R)
-       1 = BlueGreenRedReserved(字节序 B,G,R → 值 R<<16|G<<8|B) */
+    /* QEMU/OVMF 报告 PixelRedGreenBlue 时，实际扫描线字节序是 BGRX；
+       按实测结果打包，否则蓝主题会显示成棕褐色（红蓝互换）。 */
     UINT32 fmt = gfx->Mode->Info->PixelFormat;
     if (fmt == 0) return ((UINT32)b << 16) | ((UINT32)g << 8) | r;
     return ((UINT32)r << 16) | ((UINT32)g << 8) | b;
@@ -91,16 +142,25 @@ static UINT32 gfx_rgb(UINT8 r, UINT8 g, UINT8 b)
 
 static void gfx_pixel(int x, int y, UINT32 c)
 {
+    if (clip_enabled && (x < clip_x0 || x >= clip_x1 || y < clip_y0 || y >= clip_y1)) return;
     if (x < 0 || y < 0 || (UINTN)x >= gfx_w || (UINTN)y >= gfx_h) return;
     gfx_fb[(UINTN)y * gfx_stride + (UINTN)x] = c;
 }
 
 static void gfx_fill(int x, int y, int w, int h, UINT32 c)
 {
+    if (clip_enabled) {
+        if (x < clip_x0) { w -= clip_x0 - x; x = clip_x0; }
+        if (y < clip_y0) { h -= clip_y0 - y; y = clip_y0; }
+        if (x + w > clip_x1) w = clip_x1 - x;
+        if (y + h > clip_y1) h = clip_y1 - y;
+        if (w <= 0 || h <= 0) return;
+    }
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > (int)gfx_w) w = (int)gfx_w - x;
     if (y + h > (int)gfx_h) h = (int)gfx_h - y;
+    if (w <= 0 || h <= 0) return;
     for (int yy = 0; yy < h; ++yy) {
         UINT32 *p = gfx_fb + (UINTN)(y + yy) * gfx_stride + x;
         for (int xx = 0; xx < w; ++xx) p[xx] = c;
@@ -109,10 +169,8 @@ static void gfx_fill(int x, int y, int w, int h, UINT32 c)
 
 static void gfx_border(int x, int y, int w, int h, UINT32 c)
 {
-    gfx_fill(x, y, w, 2, c);
-    gfx_fill(x, y + h - 2, w, 2, c);
-    gfx_fill(x, y, 2, h, c);
-    gfx_fill(x + w - 2, y, 2, h, c);
+    gfx_fill(x, y, w, 2, c); gfx_fill(x, y + h - 2, w, 2, c);
+    gfx_fill(x, y, 2, h, c); gfx_fill(x + w - 2, y, 2, h, c);
 }
 
 static void gfx_char(int x, int y, unsigned char ch, UINT32 c)
@@ -124,32 +182,84 @@ static void gfx_char(int x, int y, unsigned char ch, UINT32 c)
             if (bits & (0x80 >> col)) gfx_pixel(x + col, y + r, c);
     }
 }
-
-static void gfx_text(int x, int y, const char *s, UINT32 c)
+static void gfx_text(int x, int y, const char *s, UINT32 c) { while (*s) gfx_char(x, y, (unsigned char)*s++, c), x += 8; }
+static void gfx_text_n(int x, int y, const char *s, int max, UINT32 c) { while (*s && max-- > 0) gfx_char(x, y, (unsigned char)*s++, c), x += 8; }
+static void gfx_char16(int x, int y, unsigned short cp, UINT32 c)
 {
-    while (*s) gfx_char(x, y, (unsigned char)*s++, c), x += 8;
+    int idx = zh_lookup(cp);
+    if (idx < 0) { gfx_char(x, y, '?', c); return; }
+    for (int r = 0; r < 16; ++r) {
+        unsigned short bits = ((unsigned short)zh_bits[idx][r * 2] << 8) | zh_bits[idx][r * 2 + 1];
+        for (int col = 0; col < 16; ++col)
+            if (bits & (0x8000 >> col)) gfx_pixel(x + col, y + r, c);
+    }
 }
 
-static void gfx_text_n(int x, int y, const char *s, int max, UINT32 c)
-{
-    while (*s && max-- > 0) gfx_char(x, y, (unsigned char)*s++, c), x += 8;
-}
-
+/* UTF-16 绘制：ASCII 走 8x16 点阵，其它字符走 16x16 中文点阵（未收录则退化为 '?') */
 static void gfx_text_w(int x, int y, const CHAR16 *s, UINT32 c)
 {
-    while (*s) gfx_char(x, y, (*s <= 126) ? (unsigned char)*s : '?', c), x += 8, ++s;
+    while (*s) {
+        if ((unsigned short)*s <= 126) { gfx_char(x, y, (unsigned char)*s, c); x += 8; }
+        else { gfx_char16(x, y, (unsigned short)*s, c); x += 16; }
+        ++s;
+    }
 }
 
 static void gfx_cursor(void)
 {
+    for (int y = 0; y < 16; ++y)
+        for (int x = 0; x < 10; ++x) {
+            int px = mouse_x + x, py = mouse_y + y;
+            cursor_bg[y][x] = (px >= 0 && py >= 0 && px < (int)gfx_w && py < (int)gfx_h)
+                ? gfx_fb[(UINTN)py * gfx_stride + px] : 0;
+        }
+    cursor_bg_x = mouse_x; cursor_bg_y = mouse_y;
     static const unsigned char arrow[16][2] = {
         {0x80,0},{0xC0,0},{0xE0,0},{0xF0,0},{0xF8,0},{0xFC,0},{0xFE,0},{0xFF,0},
         {0xFF,0x80},{0xF8,0},{0xD8,0},{0x8C,0},{0x0C,0},{0x06,0},{0x06,0},{0}
     };
+    /* 先画一圈白描边，再压黑色箭头：深色壁纸上也清楚 */
+    for (int pass = 0; pass < 2; ++pass) {
+        UINT32 col = pass ? gfx_rgb(16, 16, 16) : gfx_rgb(255, 255, 255);
+        for (int y = 0; y < 15; ++y)
+            for (int x = 0; x < 9; ++x)
+                if (arrow[y][x / 8] & (0x80 >> (x % 8))) {
+                    if (pass) gfx_pixel(mouse_x + x, mouse_y + y, col);
+                    else {
+                        for (int oy = -1; oy <= 1; ++oy)
+                            for (int ox = -1; ox <= 1; ++ox) {
+                                int px = x + ox, py = y + oy;
+                                if (px >= 0 && py >= 0 && px < 10 && py < 16)
+                                    gfx_pixel(mouse_x + px, mouse_y + py, col);
+                            }
+                    }
+                }
+    }
+}
+
+static void cursor_restore_bg(void)
+{
+    if (cursor_bg_x < 0) return;
     for (int y = 0; y < 16; ++y)
-        for (int x = 0; x < 10; ++x)
-            if (arrow[y][x / 8] & (0x80 >> (x % 8)))
-                gfx_pixel(mouse_x + x, mouse_y + y, gfx_rgb(255,255,255));
+        for (int x = 0; x < 10; ++x) {
+            int px = cursor_bg_x + x, py = cursor_bg_y + y;
+            if (px >= 0 && py >= 0 && px < (int)gfx_w && py < (int)gfx_h)
+                gfx_fb[(UINTN)py * gfx_stride + px] = cursor_bg[y][x];
+        }
+    cursor_bg_x = -1;
+}
+
+static void gfx_present_rect(int x, int y, int w, int h)
+{
+    if (!gfx_back || !gfx_hw) return;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > (int)gfx_w) w = (int)gfx_w - x;
+    if (y + h > (int)gfx_h) h = (int)gfx_h - y;
+    if (w <= 0 || h <= 0) return;
+    for (int yy = 0; yy < h; ++yy)
+        memcpy(gfx_hw + (UINTN)(y + yy) * gfx_stride + x,
+               gfx_back + (UINTN)(y + yy) * gfx_stride + x, (UINTN)w * 4);
 }
 
 static void gfx_present(void)
@@ -159,11 +269,12 @@ static void gfx_present(void)
         memcpy(gfx_hw + y * gfx_stride, gfx_back + y * gfx_stride, gfx_w * 4);
 }
 
+/* ---------- HID fallback ---------- */
+
 static void hid_init(void)
 {
     EFI_GUID guid = { 0x2B2F68D6, 0x0CD2, 0x44CF, { 0x8E, 0x8B, 0xBB, 0xA2, 0x0B, 0x1B, 0x5B, 0x75 } };
-    UINTN count = 0;
-    EFI_HANDLE *handles = NULL;
+    UINTN count = 0; EFI_HANDLE *handles = NULL;
     if (EFI_IS_ERROR(ST->BootServices->LocateHandleBuffer(2, &guid, NULL, &count, &handles))) return;
     for (UINTN i = 0; i < count && !hid_ready; ++i) {
         EFI_USB_IO_PROTOCOL *io = NULL;
@@ -177,53 +288,87 @@ static void hid_init(void)
             if ((ep.EndpointAddress & 0x80) == 0 || (ep.Attributes & 3) != 3) continue;
             UsbDeviceRequest req = { 0x21, 0x0B, 0, d.InterfaceNumber, 0 };
             UINT32 st = 0;
-            io->UsbControlTransfer(io, &req, 2, 100, NULL, 0, &st);
-            hid_io = io;
-            hid_endpoint = ep.EndpointAddress;
-            hid_ready = 1;
+            io->UsbControlTransfer(io, &req, 2, 500, NULL, 0, &st);
+            hid_io = io; hid_endpoint = ep.EndpointAddress; hid_ready = 1;
             break;
         }
     }
     if (handles) ST->BootServices->FreePool(handles);
 }
 
+static void hid_clear_stall(void)
+{
+    if (!hid_io) return;
+    UsbDeviceRequest req = { 0x02, 0x01, 0, hid_endpoint, 0 };
+    UINT32 st = 0;
+    hid_io->UsbControlTransfer(hid_io, &req, 2, 500, NULL, 0, &st);
+}
+
 static void hid_poll(void)
 {
-    UINT8 rep[8];
-    UINTN len = sizeof(rep);
-    UINT32 st = 0;
-    if (EFI_IS_ERROR(hid_io->UsbSyncInterruptTransfer(hid_io, hid_endpoint, rep, &len, 10, &st))) return;
-    if (len < 3) return;
-    signed char dx = (signed char)rep[1], dy = (signed char)rep[2];
+    UINT8 rep[8]; UINTN len = sizeof(rep); UINT32 st = 0;
+    EFI_STATUS status = hid_io->UsbSyncInterruptTransfer(hid_io, hid_endpoint, rep, &len, 500, &st);
+    if (st & USB_ERR_STALL) { hid_clear_stall(); return; }
+    if (st & ~(USB_ERR_NAK | USB_ERR_TIMEOUT)) { hid_ready = 0; hid_io = NULL; return; }
+    if (EFI_IS_ERROR(status) || (st & (USB_ERR_NAK | USB_ERR_TIMEOUT)) || len < 3) return;
+    int dx = (signed char)rep[1], dy = (signed char)rep[2];
+    if (invert_mouse) { dx = -dx; dy = -dy; }
+    if (len >= 4) mouse_wheel = (signed char)rep[3];
     mouse_x += dx; mouse_y += dy;
     mouse_down = (rep[0] & 1) != 0;
+    { int rb = (rep[0] & 2) ? 1 : 0; if (rb && !mouse_rwas) mouse_rclick = 1; mouse_rwas = rb; }
     if (dx || dy) mouse_moved = 1;
 }
 
+/* ---------- pointer poll ---------- */
+
 static void mouse_poll(void)
 {
-    mouse_click = 0;
-    mouse_moved = 0;
-    if (hid_ready) {
-        hid_poll();
+    mouse_click = 0; mouse_moved = 0; mouse_wheel = 0;
+
+    if (mouse) {
+        EFI_SIMPLE_POINTER_STATE st;
+        if (!EFI_IS_ERROR(mouse->GetState(mouse, &st))) {
+            int dx = st.RelativeMovementX, dy = st.RelativeMovementY;
+            if (invert_mouse) { dx = -dx; dy = -dy; }
+            if (dx || dy) { mouse_x += dx; mouse_y += dy; mouse_moved = 1; }
+            mouse_down = st.LeftButton;
+            int rb = st.RightButton ? 1 : 0;
+            if (rb && !mouse_rwas) mouse_rclick = 1;
+            mouse_rwas = rb;
+            mouse_wheel = (int)st.RelativeMovementZ;
+        }
     } else if (abs_ptr && abs_ptr->Mode) {
         EFI_ABSOLUTE_POINTER_STATE st;
         if (!EFI_IS_ERROR(abs_ptr->GetState(abs_ptr, &st))) {
             UINT64 mx = abs_ptr->Mode->AbsoluteMaxX, my = abs_ptr->Mode->AbsoluteMaxY;
             if (mx && my) {
-                mouse_x = (int)((st.CurrentX * (gfx_w - 1)) / mx);
-                mouse_y = (int)((st.CurrentY * (gfx_h - 1)) / my);
+                UINT64 cx = st.CurrentX, cy = st.CurrentY;
+                if (invert_mouse) {
+                    cx = (mx > cx) ? mx - cx : 0;
+                    cy = (my > cy) ? my - cy : 0;
+                }
+                int nx = (int)((cx * (gfx_w - 1)) / mx);
+                int ny = (int)((cy * (gfx_h - 1)) / my);
+                if (nx != mouse_x || ny != mouse_y) mouse_moved = 1;
+                mouse_x = nx; mouse_y = ny;
             }
             mouse_down = (st.ActiveButtons & 1) != 0;
+            { int rb = (st.ActiveButtons & 2) ? 1 : 0; if (rb && !mouse_rwas) mouse_rclick = 1; mouse_rwas = rb; }
         }
-    } else if (mouse) {
-        EFI_SIMPLE_POINTER_STATE st;
-        if (!EFI_IS_ERROR(mouse->GetState(mouse, &st))) {
-            mouse_x += st.RelativeMovementX;
-            mouse_y += st.RelativeMovementY;
-            mouse_down = st.LeftButton;
+    } else if (hid_ready) {
+        hid_poll();
+    } else if (ps2_mouse_ready()) {
+        int dx = 0, dy = 0, btn = 0;
+        if (ps2_mouse_poll(&dx, &dy, &btn)) {
+            if (invert_mouse) { dx = -dx; dy = -dy; }
+            if (dx || dy) { mouse_x += dx * 2; mouse_y += dy * 2; mouse_moved = 1; }
+            mouse_down = (btn & 1) ? 1 : 0;
+            { int rb = (btn & 2) ? 1 : 0; if (rb && !mouse_rwas) mouse_rclick = 1; mouse_rwas = rb; }
+            mouse_wheel = 0;
         }
     }
+
     if (mouse_x < 0) mouse_x = 0;
     if (mouse_y < 0) mouse_y = 0;
     if (mouse_x >= (int)gfx_w) mouse_x = (int)gfx_w - 1;
@@ -232,23 +377,19 @@ static void mouse_poll(void)
     mouse_was_down = mouse_down;
 }
 
+/* ---------- window manager ---------- */
+
 static GuiWin *win_from_index(int i) { return (i >= 0 && i < WIN_MAX && wins[i].alive) ? &wins[i] : NULL; }
 
-static void win_focus(int i)
-{
-    if (!win_from_index(i)) return;
-    focus_win = i;
-    wins[i].z = ++z_top;
-}
+static void win_focus(int i) { if (!win_from_index(i)) return; focus_win = i; wins[i].z = ++z_top; }
 
 static int win_at(int x, int y)
 {
     int best = -1, bz = -1;
     for (int i = 0; i < WIN_MAX; ++i) {
         if (!wins[i].alive) continue;
-        if (x >= wins[i].x && x < wins[i].x + wins[i].w && y >= wins[i].y && y < wins[i].y + wins[i].h) {
+        if (x >= wins[i].x && x < wins[i].x + wins[i].w && y >= wins[i].y && y < wins[i].y + wins[i].h)
             if (wins[i].z > bz) { bz = wins[i].z; best = i; }
-        }
     }
     return best;
 }
@@ -265,26 +406,22 @@ static void win_close(int i)
 
 static int win_open(int type)
 {
-    for (int i = 0; i < WIN_MAX; ++i) {
+    for (int i = 0; i < WIN_MAX; ++i)
         if (wins[i].alive && wins[i].type == type) { win_focus(i); return i; }
-    }
     for (int i = 0; i < WIN_MAX; ++i) {
         if (wins[i].alive) continue;
         for (UINTN k = 0; k < sizeof(wins[i]); ++k) ((UINT8 *)&wins[i])[k] = 0;
-        wins[i].type = type;
-        wins[i].alive = 1;
-        int n = 0;
-        for (int k = 0; k < WIN_MAX; ++k) if (wins[k].alive) ++n;
-        wins[i].x = 70 + n * 45;
-        wins[i].y = 90 + n * 35;
-        wins[i].w = (int)gfx_w - 160;
-        wins[i].h = (int)gfx_h - 220;
-        if (type == WIN_SETTINGS) { wins[i].w = 560; wins[i].h = 430; }
-        if (type == WIN_SETTINGS) { wins[i].w = 560; wins[i].h = 430; }
+        wins[i].type = type; wins[i].alive = 1;
+        int n = 0; for (int k = 0; k < WIN_MAX; ++k) if (wins[k].alive) ++n;
+        wins[i].x = 70 + n * 45; wins[i].y = 90 + n * 35;
+        wins[i].w = (int)gfx_w - 160; wins[i].h = (int)gfx_h - 220;
         if (wins[i].w > 760) wins[i].w = 760;
         if (wins[i].h > 460) wins[i].h = 460;
-        wins[i].z = ++z_top;
-        focus_win = i;
+        if (wins[i].x + wins[i].w > (int)gfx_w) wins[i].x = (int)gfx_w - wins[i].w;
+        if (wins[i].y + wins[i].h > (int)gfx_h - 34) wins[i].y = (int)gfx_h - 34 - wins[i].h;
+        if (wins[i].x < 0) wins[i].x = 0;
+        if (wins[i].y < 0) wins[i].y = 0;
+        wins[i].z = ++z_top; focus_win = i;
         return i;
     }
     return -1;
@@ -294,25 +431,37 @@ static void term_putc(GuiWin *w, char c)
 {
     if (c == '\r') { w->tcol = 0; return; }
     if (c == '\n') {
-        w->text[w->trow][w->tcol] = 0;
-        ++w->trow; w->tcol = 0;
+        w->text[w->trow][w->tcol] = 0; ++w->trow; w->tcol = 0;
         if (w->trow >= WIN_MAX_LINES) {
             for (int r = 1; r < WIN_MAX_LINES; ++r) memcpy(w->text[r - 1], w->text[r], WIN_COLS + 1);
-            w->trow = WIN_MAX_LINES - 1;
-            w->text[w->trow][0] = 0;
+            w->trow = WIN_MAX_LINES - 1; w->text[w->trow][0] = 0;
         }
         return;
     }
     if (c == 8) { if (w->tcol) w->text[w->trow][--w->tcol] = 0; return; }
     if (c < 32 || c > 126) c = '?';
     if (w->tcol >= WIN_COLS) {
-        w->text[w->trow][WIN_COLS] = 0;
-        ++w->trow; w->tcol = 0;
+        w->text[w->trow][WIN_COLS] = 0; ++w->trow; w->tcol = 0;
         if (w->trow >= WIN_MAX_LINES) { w->trow = WIN_MAX_LINES - 1; w->text[w->trow][0] = 0; }
     }
     w->text[w->trow][w->tcol++] = c;
     w->text[w->trow][w->tcol] = 0;
 }
+
+static char gui_cap[8192]; static int gui_cap_len;
+static void gui_capture_put(const CHAR16 *s)
+{
+    while (*s && gui_cap_len + 2 < (int)sizeof(gui_cap)) {
+        CHAR16 c = *s++;
+        if (c == '\r') continue;
+        if (c == '\n') { gui_cap[gui_cap_len++] = '\n'; continue; }
+        if (c == '\t') { gui_cap[gui_cap_len++] = ' '; continue; }
+        if (c >= 32 && c <= 126) gui_cap[gui_cap_len++] = (char)c;
+        else gui_cap[gui_cap_len++] = '?';
+    }
+    gui_cap[gui_cap_len] = 0;
+}
+static void gui_capture_flush(GuiWin *w) { for (int i = 0; i < gui_cap_len; ++i) term_putc(w, gui_cap[i]); gui_cap_len = 0; }
 
 static void gfx_out_wide(const CHAR16 *s)
 {
@@ -338,21 +487,28 @@ static void term_execute(GuiWin *w)
         int duplicate = hist_count > 0 && weq(wide, hist[hist_count - 1]);
         if (!duplicate) {
             if (hist_count < HIST_MAX) wcopy(hist[hist_count++], 192, wide);
-            else {
-                for (int i = 1; i < HIST_MAX; ++i) wcopy(hist[i - 1], 192, hist[i]);
-                wcopy(hist[HIST_MAX - 1], 192, wide);
-            }
+            else { for (int i = 1; i < HIST_MAX; ++i) wcopy(hist[i - 1], 192, hist[i]); wcopy(hist[HIST_MAX - 1], 192, wide); }
         }
-        hist_pos = hist_count;
-        active_tty = 2;
-        gfx_term_target = w;
+        hist_pos = hist_count; active_tty = 2; gfx_active = 1;
+        gfx_term_target = w; gui_cap_len = 0; gui_capture = 1;
         process_command(wide);
-        gfx_term_target = NULL;
-        active_tty = 1;
+        gui_capture = 0; gui_capture_flush(w); w->scroll = 0;
+        gfx_term_target = NULL; active_tty = 1;
         term_putc(w, '\n');
     }
-    w->input_len = 0;
-    w->input[0] = 0;
+    w->input_len = 0; w->input[0] = 0;
+}
+
+
+static int wstr_contains(const CHAR16 *hay, const CHAR16 *needle)
+{
+    if (!needle[0]) return 1;
+    for (int i = 0; hay[i]; ++i) {
+        int j = 0;
+        while (needle[j] && hay[i + j] == needle[j]) ++j;
+        if (!needle[j]) return 1;
+    }
+    return 0;
 }
 
 static void win_load_files(GuiWin *w)
@@ -373,117 +529,464 @@ static void win_load_files(GuiWin *w)
         e->size = info->FileSize;
         if (w->entry_count >= WIN_ENTRIES) break;
     }
-    dir->Close(dir);
-    w->loaded = 1;
+    dir->Close(dir); w->loaded = 1;
+}
+
+
+static void file_full_path(GuiWin *w, int row, CHAR16 *out, int cap)
+{
+    wcopy(out, cap, CWD);
+    if (wlen(out) && out[wlen(out) - 1] != L'\\') wcat(out, cap, L"\\");
+    if (row >= 0 && row < w->entry_count) wcat(out, cap, w->entries[row].name);
+}
+
+/* 系统文件保护：\EFI 下的引导文件、.dwc 依赖声明、.glf 壁纸不允许删除 */
+static int file_is_protected(const CHAR16 *path, const CHAR16 *name)
+{
+    if (wstr_contains(path, L"\\EFI")) return 1;
+    int n = wlen(name);
+    if (n > 4) {
+        const CHAR16 *ext = name + n - 4;
+        if (weq(ext, L".dwc") || weq(ext, L".glf")) return 1;
+    }
+    if (weq(name, L"BOOTX64.EFI") || weq(name, L"BOOTIA32.EFI")) return 1;
+    return 0;
+}
+
+static void file_delete(GuiWin *w)
+{
+    if (w->sel < 0 || w->sel >= w->entry_count) { w->prop_msg = 3; return; }
+    CHAR16 path[256];
+    file_full_path(w, w->sel, path, sizeof(path) / sizeof(path[0]));
+    if (file_is_protected(path, w->entries[w->sel].name)) { w->prop_msg = 2; return; }
+    EFI_FILE_PROTOCOL *f = NULL;
+    if (!open_path(path, &f, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0)) { w->prop_msg = 2; return; }
+    EFI_STATUS st = f->Delete(f);
+    w->prop_msg = EFI_IS_ERROR(st) ? 3 : 1;
+    w->loaded = 0;
+    w->sel = -1;
 }
 
 static void draw_files(GuiWin *w)
 {
     if (!w->loaded) win_load_files(w);
     int x = w->x + 8, y = w->y + 36;
-    gfx_text(x, y, "Path:", gfx_dim);
-    gfx_text_w(x + 48, y, CWD, gfx_text_c);
+    gfx_text_w(x, y, L"路径：", gfx_dim);
+    gfx_text_w(x + 56, y, CWD, gfx_text_c);
     gfx_fill(x, y + 24, 64, 24, gfx_panel);
     gfx_border(x, y + 24, 64, 24, gfx_accent);
-    gfx_text(x + 10, y + 30, "Back", gfx_text_c);
+    gfx_text_w(x + 10, y + 30, L"返回", gfx_text_c);
+
     for (int row = 0; row < w->entry_count; ++row) {
         int yy = y + 62 + row * 20;
-        if (yy + 16 > w->y + w->h - 10) break;
+        if (yy + 16 > w->y + w->h - 44) break;
+        if (row == w->sel) gfx_fill(x, yy - 2, w->w - 16, 18, gfx_rgb(215,208,192));
         gfx_text_w(x + 18, yy, w->entries[row].name, w->entries[row].dir ? gfx_accent : gfx_text_c);
-        if (w->entries[row].dir)
-            gfx_text(x + 18 + (int)wlen(w->entries[row].name) * 8, yy, "/", gfx_accent);
+        if (w->entries[row].dir) gfx_text(x + 18 + (int)wlen(w->entries[row].name) * 8, yy, "/", gfx_accent);
+    }
+
+    /* 底部三个按钮 */
+    int by = w->y + w->h - 32;
+    const CHAR16 *lbl[3] = { L"属性", L"删除", L"刷新" };
+    int bw = 62, gap = 8, bx = x;
+    for (int i = 0; i < 3; ++i) {
+        gfx_fill(bx, by, bw, 22, gfx_panel);
+        gfx_border(bx, by, bw, 22, gfx_accent);
+        gfx_text_w(bx + 8, by + 3, lbl[i], gfx_text_c);
+        bx += bw + gap;
+    }
+
+    if (w->prop_show && w->sel >= 0 && w->sel < w->entry_count) {
+        GuiEnt *e = &w->entries[w->sel];
+        int px = x + 210, pw = w->w - 226;
+        if (pw < 120) { px = x; pw = w->w - 16; }
+        gfx_fill(px, y + 24, pw, 140, gfx_rgb(238,234,224));
+        gfx_border(px, y + 24, pw, 140, gfx_accent);
+        gfx_text_w(px + 8, y + 30, L"属性", gfx_accent);
+        gfx_text_w(px + 8, y + 52, L"名称", gfx_dim);
+        gfx_text_w(px + 52, y + 52, e->name, gfx_text_c);
+        gfx_text_w(px + 8, y + 72, L"类型", gfx_dim);
+        gfx_text_w(px + 52, y + 72, e->dir ? L"文件夹" : L"文件", gfx_text_c);
+
+        CHAR16 line[64]; line[0] = 0;
+        if (!e->dir) {
+            CHAR16 num[24]; int si = 0; UINT64 v = e->size;
+            if (!v) num[si++] = L'0';
+            else { CHAR16 t[20]; int ti = 0; while (v && ti < 19) { t[ti++] = (CHAR16)(L'0' + (v % 10)); v /= 10; } while (ti) num[si++] = t[--ti]; }
+            num[si] = 0;
+            wcopy(line, 64, num); wcat(line, 64, L" 字节");
+        } else wcopy(line, 64, L"—");
+        gfx_text_w(px + 8, y + 92, L"大小", gfx_dim);
+        gfx_text_w(px + 52, y + 92, line, gfx_text_c);
+
+        CHAR16 path[256];
+        file_full_path(w, w->sel, path, 256);
+        int prot = file_is_protected(path, e->name);
+        gfx_text_w(px + 8, y + 112, prot ? L"系统文件，受保护" : L"普通文件，可删除", prot ? gfx_rgb(170,60,50) : gfx_dim);
+
+        if (w->prop_msg == 1) gfx_text_w(px + 8, y + 132, L"已删除", gfx_accent);
+        if (w->prop_msg == 2) gfx_text_w(px + 8, y + 132, L"拒绝访问：系统文件不可删除", gfx_rgb(170,60,50));
+        if (w->prop_msg == 3) gfx_text_w(px + 8, y + 132, L"删除失败", gfx_rgb(170,60,50));
     }
 }
 
+static int win_rows(GuiWin *w) { int r = (w->h - 80) / 16; if (r < 2) r = 2; if (r > WIN_VIEW_LINES) r = WIN_VIEW_LINES; return r; }
+
 static void draw_term(GuiWin *w)
 {
-    for (int r = 0; r < WIN_MAX_LINES; ++r)
-        gfx_text_n(w->x + 8, w->y + 38 + r * 16, w->text[r], WIN_COLS, gfx_text_c);
-    int yy = w->y + w->h - 24;
+    int rows = win_rows(w);
+    int start = w->trow - rows + 1 - w->scroll;
+    if (start < 0) start = 0; if (start > w->trow) start = w->trow;
+    for (int r = 0; r < rows; ++r) {
+        int line = start + r;
+        if (line >= 0 && line <= w->trow)
+            gfx_text_n(w->x + 8, w->y + 38 + r * 16, w->text[line], WIN_COLS, gfx_text_c);
+    }
+    /* 像 Linux 一样：提示符紧跟最后一行输出，而不是钉在窗口底部 */
+    int used = 0;
+    for (int r = 0; r < rows; ++r) { int line = start + r; if (line >= 0 && line <= w->trow) used = r + 1; }
+    int yy = w->y + 38 + used * 16;
+    if (yy > w->y + w->h - 24) yy = w->y + w->h - 24;
     gfx_text(w->x + 8, yy, "tty2>", gfx_accent);
     gfx_text(w->x + 80, yy, w->input, gfx_text_c);
     gfx_fill(w->x + 80 + w->input_len * 8, yy + 14, 7, 2, gfx_text_c);
 }
 
-static const char *theme_names[5] = { "Blue", "Midnight", "Green", "Matrix", "Amber" };
-static void apply_theme(void);
-
-static void draw_settings(GuiWin *w)
+static void gedit_load(GuiWin *w)
 {
-    int x0 = w->x + 18, y0 = w->y + 44;
-    gfx_text(x0, y0 - 8, "Appearance", gfx_dim);
-    for (int i = 0; i < 5; ++i) {
-        int ry = y0 + 14 + i * 40;
-        int sel = (theme_index == i);
-        gfx_fill(x0 - 6, ry - 6, w->w - 36, 32, sel ? gfx_panel : gfx_rgb(10, 12, 20));
-        gfx_border(x0 - 6, ry - 6, w->w - 36, 32, sel ? gfx_accent : gfx_dim);
-        gfx_text(x0, ry, theme_names[i], sel ? gfx_accent : gfx_text_c);
-        gfx_text(x0 + 130, ry, sel ? "current" : "click to apply", gfx_dim);
+    w->edit_lines = 1; w->edit_row = w->edit_col = 0; w->edit[0][0] = 0;
+    static UINT8 data[8192];
+    UINTN n = read_whole_file(w->edit_path, data, sizeof(data) - 1);
+    if (!n) { w->edit_loaded = 1; return; }
+    int line = 0, col = 0;
+    for (UINTN i = 0; i < n && line < 80; ++i) {
+        char c = (char)data[i];
+        if (c == '\r') continue;
+        if (c == '\n') { w->edit[line][col] = 0; ++line; col = 0; if (line < 80) w->edit[line][0] = 0; continue; }
+        if (col < 79) w->edit[line][col++] = c;
     }
-    int ry = y0 + 14 + 5 * 40 + 10;
-    gfx_text(x0, ry, "Window manager", gfx_dim);
-    gfx_text(x0, ry + 22, "drag title bar to move   /   X to close   /   taskbar to focus", gfx_text_c);
-    gfx_text(x0, ry + 44, "kernel: WCT Kernel 0.1_ET   ui: wctdesk   input: usb hid / ps2", gfx_dim);
-    gfx_text(x0, ry + 66, "display: GOP framebuffer   shell: wctsh", gfx_dim);
+    w->edit[line][col] = 0; w->edit_lines = line + 1; w->edit_loaded = 1;
 }
+
+static void gedit_save(GuiWin *w)
+{
+    static char out[8192]; UINTN n = 0;
+    for (int r = 0; r < w->edit_lines && n + 82 < sizeof(out); ++r) {
+        for (int c = 0; w->edit[r][c] && n + 1 < sizeof(out); ++c) out[n++] = w->edit[r][c];
+        out[n++] = '\n';
+    }
+    if (write_bytes(w->edit_path, out, n)) w->edit_loaded = 2;
+}
+
+static void gedit_draw(GuiWin *w)
+{
+    gfx_fill(w->x + 4, w->y + 32, w->w - 8, 18, gfx_panel);
+    gfx_text_w(w->x + 8, w->y + 36, w->edit_path, gfx_accent);
+    for (int r = 0; r < w->edit_lines && r < 26; ++r) {
+        int yy = w->y + 58 + r * 16;
+        if (yy + 16 > w->y + w->h - 24) break;
+        gfx_text(w->x + 8, yy, w->edit[r], gfx_text_c);
+        if (r == w->edit_row) gfx_fill(w->x + 8 + w->edit_col * 8, yy + 14, 7, 2, gfx_accent);
+    }
+    gfx_text_w(w->x + 8, w->y + w->h - 20,
+             w->edit_loaded == 2 ? L"已保存。Ctrl+S 保存   Esc 关闭" : L"Ctrl+S 保存   Esc 关闭", gfx_dim);
+}
+
+static int gedit_len(const char *s) { int n = 0; while (s[n]) ++n; return n; }
+
+static void gedit_key(GuiWin *w, EFI_INPUT_KEY key)
+{
+    if (key.UnicodeChar == 19) { gedit_save(w); return; }
+    if (key.ScanCode == 0x01) { if (w->edit_row > 0) --w->edit_row; w->edit_col = gedit_len(w->edit[w->edit_row]); return; }
+    if (key.ScanCode == 0x02) { if (w->edit_row + 1 < w->edit_lines) ++w->edit_row; w->edit_col = gedit_len(w->edit[w->edit_row]); return; }
+    if (key.ScanCode == 0x03) { if (w->edit_col > 0) --w->edit_col; return; }
+    if (key.ScanCode == 0x04) { if (w->edit_col < gedit_len(w->edit[w->edit_row])) ++w->edit_col; return; }
+    if (key.UnicodeChar == '\r' || key.UnicodeChar == '\n' || key.ScanCode == 0x0D) {
+        if (w->edit_lines < 80) {
+            w->edit[w->edit_row][w->edit_col] = 0;
+            ++w->edit_row; w->edit_col = 0; w->edit[w->edit_row][0] = 0;
+            if (w->edit_row >= w->edit_lines) w->edit_lines = w->edit_row + 1;
+        }
+        return;
+    }
+    if (key.UnicodeChar == 8 && w->edit_col > 0) { w->edit[w->edit_row][--w->edit_col] = 0; return; }
+    if (key.UnicodeChar >= 32 && key.UnicodeChar < 127 && w->edit_col < 79) {
+        w->edit[w->edit_row][w->edit_col++] = (char)key.UnicodeChar;
+        w->edit[w->edit_row][w->edit_col] = 0;
+    }
+}
+
 static void draw_window(GuiWin *w)
 {
     UINT32 border = (win_from_index(focus_win) == w) ? gfx_accent : gfx_dim;
-    gfx_fill(w->x, w->y, w->w, w->h, gfx_rgb(8, 8, 14));
+    const CHAR16 *title = w->type == WIN_FILES ? L"文件管理器" : (w->type == WIN_TERM ? L"终端" : L"编辑器");
+    gfx_fill(w->x, w->y, w->w, w->h, gfx_panel);
+    gfx_fill(w->x + w->w, w->y + 2, 2, w->h - 2, gfx_rgb(150,142,130));
+    gfx_fill(w->x + 2, w->y + w->h, w->w - 2, 2, gfx_rgb(150,142,130));
     gfx_border(w->x, w->y, w->w, w->h, border);
     gfx_fill(w->x + 2, w->y + 2, w->w - 4, 28, gfx_top);
-    gfx_text(w->x + 10, w->y + 8,
-             w->type == WIN_FILES ? "Files" :
-             (w->type == WIN_SETTINGS ? "Settings" : "Terminal"), border);
+    gfx_fill(w->x + 2, w->y + 30, w->w - 4, 1, gfx_rgb(200,193,180));
+    gfx_text_w(w->x + 10, w->y + 8, title, border);
     gfx_fill(w->x + w->w - 34, w->y + 6, 24, 20, gfx_panel);
     gfx_border(w->x + w->w - 34, w->y + 6, 24, 20, border);
     gfx_text(w->x + w->w - 26, w->y + 9, "X", gfx_text_c);
     if (w->type == WIN_FILES) draw_files(w);
-    else if (w->type == WIN_SETTINGS) draw_settings(w);
-    else draw_term(w);
+    else if (w->type == WIN_TERM) draw_term(w);
+    else gedit_draw(w);
 }
 
+/* ---------- 桌面图标（手绘小图形，不依赖外部图片） ---------- */
+static void ico_folder(int x, int y)
+{
+    gfx_fill(x + 4, y + 8, 34, 24, gfx_rgb(214,178,96));
+    gfx_fill(x + 4, y + 4, 16, 8, gfx_rgb(230,196,118));
+    gfx_border(x + 4, y + 4, 34, 28, gfx_rgb(140,110,50));
+    gfx_fill(x + 6, y + 14, 30, 2, gfx_rgb(180,146,74));
+}
+static void ico_term(int x, int y)
+{
+    gfx_fill(x + 4, y + 4, 34, 30, gfx_rgb(28,30,36));
+    gfx_border(x + 4, y + 4, 34, 30, gfx_rgb(90,94,104));
+    gfx_fill(x + 9, y + 12, 3, 4, gfx_rgb(210,214,222));
+    gfx_fill(x + 12, y + 15, 5, 3, gfx_rgb(210,214,222));
+    gfx_fill(x + 9, y + 22, 12, 2, gfx_rgb(150,156,168));
+}
+static void ico_edit(int x, int y)
+{
+    gfx_fill(x + 7, y + 3, 26, 32, gfx_rgb(246,244,238));
+    gfx_border(x + 7, y + 3, 26, 32, gfx_rgb(150,146,136));
+    for (int i = 0; i < 5; ++i) gfx_fill(x + 11, y + 8 + i * 5, 18, 2, gfx_rgb(120,120,120));
+}
+static void ico_set(int x, int y)
+{
+    /* 三条滑杆，比齿轮更像“设置” */
+    int xs[3] = { 6, 10, 14 };
+    for (int i = 0; i < 3; ++i) {
+        int yy = y + 10 + i * 8;
+        gfx_fill(x + 6, yy, 30, 2, gfx_rgb(140,136,126));
+        gfx_fill(x + xs[i], yy - 2, 6, 6, gfx_accent);
+        gfx_border(x + xs[i], yy - 2, 6, 6, gfx_rgb(40,60,100));
+    }
+}
+static void ico_task(int x, int y)
+{
+    gfx_fill(x + 5, y + 4, 32, 30, gfx_rgb(40,44,52));
+    gfx_fill(x + 9, y + 20, 5, 10, gfx_rgb(120,200,140));
+    gfx_fill(x + 16, y + 14, 5, 16, gfx_rgb(230,190,90));
+    gfx_fill(x + 23, y + 9, 5, 21, gfx_rgb(120,160,230));
+}
+static void ico_info(int x, int y)
+{
+    gfx_fill(x + 8, y + 4, 26, 30, gfx_rgb(226,222,212));
+    gfx_border(x + 8, y + 4, 26, 30, gfx_accent);
+    gfx_fill(x + 20, y + 9, 3, 8, gfx_accent);
+    gfx_fill(x + 19, y + 10, 5, 3, gfx_accent);
+    gfx_fill(x + 20, y + 20, 3, 9, gfx_accent);
+}
+
+static void draw_icon_cell(int x, int y, int kind, const CHAR16 *label)
+{
+    int hot = (mouse_x >= x && mouse_x < x + 64 && mouse_y >= y && mouse_y < y + 64);
+    if (hot) gfx_fill(x, y, 64, 64, theme_index == 5 ? gfx_rgb(232,227,216) : gfx_rgb(18,26,42));
+    switch (kind) {
+    case 0: ico_folder(x + 10, y + 10); break;
+    case 1: ico_term(x + 10, y + 10); break;
+    case 2: ico_edit(x + 10, y + 10); break;
+    case 3: ico_set(x + 10, y + 10); break;
+    case 4: ico_task(x + 10, y + 10); break;
+    default: ico_info(x + 10, y + 10); break;
+    }
+    int lw = 0;
+    for (const CHAR16 *q = label; *q; ++q) lw += ((unsigned short)*q <= 126) ? 8 : 16;
+    gfx_text_w(x + (64 - lw) / 2, y + 50, label, hot ? gfx_accent : gfx_text_c);
+}
+
+#define DESK_ICONS 6
 static void draw_desktop(void)
 {
-    gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_bg);
-    gfx_fill(0, 0, (int)gfx_w, 38, gfx_top);
-    gfx_text(14, 11, "WCT-OS Desktop", gfx_text_c);
-    gfx_text((int)gfx_w - 220, 11, "aqtwWCT95  |  4.0.441", gfx_dim);
-    const char *names[5] = { "Files", "Terminal", "Settings", "Theme", "Exit" };
-    const char *subs[5]  = { "open", "open", "open", "cycle", "leave" };
-    for (int i = 0; i < 5; ++i) {
-        int x = 40 + i * 176, y = 75;
-        gfx_fill(x, y, 160, 74, gfx_panel);
-        gfx_border(x, y, 160, 74, gfx_accent);
-        gfx_text(x + 14, y + 14, names[i], gfx_text_c);
-        gfx_text(x + 14, y + 42, subs[i], gfx_dim);
+    wct_ui_bg();
+    /* 顶部只有一条很细的纸边，不放说明文字 */
+    gfx_fill(0, 0, (int)gfx_w, 2, gfx_accent);
+
+    const CHAR16 *names[DESK_ICONS] = { L"文件管理器", L"终端", L"文本编辑器",
+                                       L"设置", L"任务管理器", L"系统属性" };
+    for (int i = 0; i < DESK_ICONS; ++i) {
+        int x = 28 + (i % 3) * 88;
+        int y = 34 + (i / 3) * 88;
+        draw_icon_cell(x, y, i, names[i]);
     }
-    gfx_text(40, 180, "Drag window title bars. Click X to close a window.", gfx_dim);
-    gfx_text(40, 202, "Settings > Appearance switches the desktop theme.", gfx_dim);
-    /* taskbar */
-    gfx_fill(0, (int)gfx_h - 34, (int)gfx_w, 34, gfx_top);
-    int bx = 8;
+
+    /* 任务栏 */
+    int h = (int)gfx_h, W = (int)gfx_w;
+    gfx_fill(0, h - 34, W, 34, gfx_top);
+    gfx_fill(0, h - 34, W, 1, gfx_rgb(200,193,180));
+    gfx_fill(6, h - 30, 64, 26, gfx_panel);
+    gfx_border(6, h - 30, 64, 26, gfx_accent);
+    for (int bx = 0; bx < 2; ++bx)
+        for (int by = 0; by < 2; ++by)
+            gfx_fill(13 + bx * 8, h - 26 + by * 8, 6, 6, gfx_accent);
+    gfx_text_w(38, h - 26, L"开始", gfx_accent);
+
+    int bx = 78;
     for (int i = 0; i < WIN_MAX; ++i) {
         if (!wins[i].alive) continue;
-        gfx_fill(bx, (int)gfx_h - 30, 150, 24, i == focus_win ? gfx_accent : gfx_panel);
-        gfx_text(bx + 8, (int)gfx_h - 26,
-                 wins[i].type == WIN_FILES ? "Files" :
-                 (wins[i].type == WIN_SETTINGS ? "Settings" : "Terminal"), gfx_text_c);
-        bx += 160;
+        gfx_fill(bx, h - 30, 140, 26, i == focus_win ? gfx_accent : gfx_panel);
+        gfx_text_w(bx + 8, h - 26, wins[i].type == WIN_FILES ? L"文件管理器" :
+                                   (wins[i].type == WIN_TERM ? L"终端" : L"编辑器"),
+                   i == focus_win ? gfx_rgb(255,255,255) : gfx_text_c);
+        bx += 146;
     }
-}
 
+    ui_tray_draw();
+}
 static void draw_all(void)
 {
     draw_desktop();
     for (int z = 1; z <= z_top; ++z)
         for (int i = 0; i < WIN_MAX; ++i)
             if (wins[i].alive && wins[i].z == z) draw_window(&wins[i]);
+    wct_ui_draw();
     gfx_cursor();
+}
+
+static void apply_theme(void)
+{
+    switch (theme_index) {
+    case 0: gfx_bg=gfx_rgb(15,10,25); gfx_top=gfx_rgb(60,20,80); gfx_panel=gfx_rgb(30,25,45); gfx_accent=gfx_rgb(205,125,255); break;
+    case 1: gfx_bg=gfx_rgb(5,15,10); gfx_top=gfx_rgb(10,45,25); gfx_panel=gfx_rgb(15,32,22); gfx_accent=gfx_rgb(55,220,115); break;
+    case 2: gfx_bg=gfx_rgb(0,10,0); gfx_top=gfx_rgb(0,40,0); gfx_panel=gfx_rgb(0,25,0); gfx_accent=gfx_rgb(0,255,0); break;
+    case 3: gfx_bg=gfx_rgb(15,10,0); gfx_top=gfx_rgb(60,35,0); gfx_panel=gfx_rgb(35,25,5); gfx_accent=gfx_rgb(255,190,60); break;
+    case 5:                                  /* 纸片：米白纸张 + 细边框 + 墨蓝字 */
+        gfx_bg=gfx_rgb(226,222,212); gfx_top=gfx_rgb(250,248,241);
+        gfx_panel=gfx_rgb(246,243,235); gfx_accent=gfx_rgb(52,86,138); break;
+    default: gfx_bg=gfx_rgb(5,10,20); gfx_top=gfx_rgb(20,45,70); gfx_panel=gfx_rgb(15,28,45); gfx_accent=gfx_rgb(100,210,255); break;
+    }
+    if (theme_index == 5) { gfx_text_c = gfx_rgb(38,36,34); gfx_dim = gfx_rgb(120,114,106); }
+    else { gfx_text_c = gfx_rgb(235,235,245); gfx_dim = gfx_rgb(145,145,165); }
+}
+
+/* ---------- drag outline primitives ---------- */
+
+static void dframe_pixel(int x, int y, UINT32 c)
+{
+    if (x < 0 || y < 0 || (UINTN)x >= gfx_w || (UINTN)y >= gfx_h) return;
+    gfx_fb[(UINTN)y * gfx_stride + (UINTN)x] = c;
+}
+
+static void dframe_save_bg(void)
+{
+    int x = df_x, y = df_y, w = df_w, h = df_h;
+    int x1 = x + w - 1, y1 = y + h - 1;
+    for (int i = 0; i < w; ++i) {
+        int px = x + i;
+        df_top_bg[i]    = (px >= 0 && y  >= 0 && px < (int)gfx_w && y  < (int)gfx_h) ? gfx_fb[(UINTN)y  * gfx_stride + px] : 0;
+        df_bottom_bg[i] = (px >= 0 && y1 >= 0 && px < (int)gfx_w && y1 < (int)gfx_h) ? gfx_fb[(UINTN)y1 * gfx_stride + px] : 0;
+    }
+    for (int i = 0; i < h; ++i) {
+        int py = y + i;
+        df_left_bg[i]  = (x  >= 0 && py >= 0 && x  < (int)gfx_w && py < (int)gfx_h) ? gfx_fb[(UINTN)py * gfx_stride + x ] : 0;
+        df_right_bg[i] = (x1 >= 0 && py >= 0 && x1 < (int)gfx_w && py < (int)gfx_h) ? gfx_fb[(UINTN)py * gfx_stride + x1] : 0;
+    }
+}
+
+static void dframe_restore_bg(void)
+{
+    int x = df_x, y = df_y, w = df_w, h = df_h;
+    int x1 = x + w - 1, y1 = y + h - 1;
+    for (int i = 0; i < w; ++i) {
+        int px = x + i;
+        if (px >= 0 && y  >= 0 && px < (int)gfx_w && y  < (int)gfx_h) gfx_fb[(UINTN)y  * gfx_stride + px] = df_top_bg[i];
+        if (px >= 0 && y1 >= 0 && px < (int)gfx_w && y1 < (int)gfx_h) gfx_fb[(UINTN)y1 * gfx_stride + px] = df_bottom_bg[i];
+    }
+    for (int i = 0; i < h; ++i) {
+        int py = y + i;
+        if (x  >= 0 && py >= 0 && x  < (int)gfx_w && py < (int)gfx_h) gfx_fb[(UINTN)py * gfx_stride + x ] = df_left_bg[i];
+        if (x1 >= 0 && py >= 0 && x1 < (int)gfx_w && py < (int)gfx_h) gfx_fb[(UINTN)py * gfx_stride + x1] = df_right_bg[i];
+    }
+}
+
+static void dframe_draw_border(void)
+{
+    UINT32 c = gfx_rgb(255, 255, 255);
+    int x = df_x, y = df_y, w = df_w, h = df_h;
+    int x1 = x + w - 1, y1 = y + h - 1;
+    for (int i = 0; i < w; ++i) { dframe_pixel(x + i, y, c); dframe_pixel(x + i, y1, c); }
+    for (int i = 0; i < h; ++i) { dframe_pixel(x, y + i, c); dframe_pixel(x1, y + i, c); }
+}
+
+static void dframe_present(int x, int y)
+{
+    int w = df_w, h = df_h;
+    gfx_present_rect(x, y, w, 1);
+    gfx_present_rect(x, y + h - 1, w, 1);
+    gfx_present_rect(x, y, 1, h);
+    gfx_present_rect(x + w - 1, y, 1, h);
+}
+
+static void dframe_end(void)
+{
+    if (df_top_bg)    { ST->BootServices->FreePool(df_top_bg);    df_top_bg = NULL; }
+    if (df_bottom_bg) { ST->BootServices->FreePool(df_bottom_bg); df_bottom_bg = NULL; }
+    if (df_left_bg)   { ST->BootServices->FreePool(df_left_bg);   df_left_bg = NULL; }
+    if (df_right_bg)  { ST->BootServices->FreePool(df_right_bg);  df_right_bg = NULL; }
+    df_active = 0;
+}
+
+static int dframe_begin(int x, int y, int w, int h)
+{
+    dframe_end();
+    df_w = w; df_h = h;
+    if (EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, (UINTN)w * 4, (VOID **)&df_top_bg))    || !df_top_bg)    { dframe_end(); return 0; }
+    if (EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, (UINTN)w * 4, (VOID **)&df_bottom_bg)) || !df_bottom_bg) { dframe_end(); return 0; }
+    if (EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, (UINTN)h * 4, (VOID **)&df_left_bg))   || !df_left_bg)   { dframe_end(); return 0; }
+    if (EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, (UINTN)h * 4, (VOID **)&df_right_bg))  || !df_right_bg)  { dframe_end(); return 0; }
+    df_x = x; df_y = y;
+    dframe_save_bg();
+    dframe_draw_border();
+    df_active = 1;
+    dframe_present(df_x, df_y);
+    return 1;
+}
+
+/* Move the outline to (nx, ny). Erases the old one, draws the new one, and
+   presents only the 8 affected line segments plus the cursor. */
+static void dframe_move(int nx, int ny, int old_cx, int old_cy)
+{
+    int ox = df_x, oy = df_y;
+    cursor_restore_bg();
+    dframe_restore_bg();
+    df_x = nx; df_y = ny;
+    dframe_save_bg();
+    dframe_draw_border();
+    gfx_cursor();
+    dframe_present(ox, oy);
+    if (ox != nx || oy != ny) dframe_present(nx, ny);
+    gfx_present_rect(old_cx, old_cy, 10, 16);
+    gfx_present_rect(mouse_x, mouse_y, 10, 16);
+}
+
+/* Drop: erase outline, apply final position, then caller does a full redraw. */
+static int dframe_drop(void)
+{
+    int fx = df_x, fy = df_y;
+    cursor_restore_bg();
+    dframe_restore_bg();
+    dframe_present(df_x, df_y);
+    dframe_end();
+    gfx_cursor();
+    gfx_present_rect(mouse_x, mouse_y, 10, 16);
+    return fx << 16 | (fy & 0xFFFF); /* unused, see caller */
 }
 
 static void handle_term_key(GuiWin *w, EFI_INPUT_KEY key)
 {
+    if (key.ScanCode == 0x0B || key.ScanCode == 0x01) {
+        w->scroll += 4;
+        int maxs = w->trow - win_rows(w) + 1; if (maxs < 0) maxs = 0;
+        if (w->scroll > maxs) w->scroll = maxs;
+        return;
+    }
+    if (key.ScanCode == 0x0C || key.ScanCode == 0x02) { w->scroll -= 4; if (w->scroll < 0) w->scroll = 0; return; }
     if (key.UnicodeChar == '\r' || key.UnicodeChar == '\n' || key.ScanCode == 0x0D) { term_execute(w); return; }
     if (key.UnicodeChar == 8) { if (w->input_len) w->input[--w->input_len] = 0; return; }
     if (key.UnicodeChar >= 32 && key.UnicodeChar < 127 && w->input_len < 95) {
@@ -494,199 +997,283 @@ static void handle_term_key(GuiWin *w, EFI_INPUT_KEY key)
 
 static void handle_click(void)
 {
+    if (mouse_rclick) {
+        mouse_rclick = 0;
+        if (mouse_y >= (int)gfx_h - 34) ui_open_taskmgr();
+        else ui_next_wallpaper();
+        return;
+    }
+    if (wct_ui_click()) return;
     int wi = win_at(mouse_x, mouse_y);
     if (wi >= 0) {
         GuiWin *w = &wins[wi];
-        int old = focus_win;
         win_focus(wi);
         int lx = mouse_x - w->x, ly = mouse_y - w->y;
         if (lx >= w->w - 36 && ly >= 4 && ly <= 28) { win_close(wi); return; }
-        if (ly < 30) {
-            dragging = wi;
-            drag_dx = mouse_x - w->x;
-            drag_dy = mouse_y - w->y;
-            return;
-        }
-        if (w->type == WIN_SETTINGS) {
-            int y0 = 44;
-            for (int i = 0; i < 5; ++i) {
-                int ry = y0 + 14 + i * 40;
-                if (ly >= ry - 8 && ly < ry + 28) { theme_index = i; apply_theme(); return; }
-            }
-            return;
-        }
-        if (w->type == WIN_SETTINGS) {
-            int y0 = 44;
-            for (int i = 0; i < 5; ++i) {
-                int ry = y0 + 14 + i * 40;
-                if (ly >= ry - 8 && ly < ry + 28) { theme_index = i; apply_theme(); return; }
-            }
-            return;
-        }
+        if (ly < 30) { dragging = wi; drag_dx = mouse_x - w->x; drag_dy = mouse_y - w->y; return; }
         if (w->type == WIN_FILES) {
+            if (ly >= w->h - 34 && ly <= w->h - 8 && lx >= 8) {
+                int bi = (lx - 8) / 70;
+                if (bi == 0) { if (w->sel < 0 && w->entry_count) w->sel = 0; w->prop_show = 1; w->prop_msg = 0; }
+                else if (bi == 1) file_delete(w);
+                else if (bi == 2) { w->loaded = 0; w->prop_show = 0; }
+                return;
+            }
             if (lx >= 8 && lx < 72 && ly >= 60 && ly < 84) {
                 CHAR16 parent[256];
                 normalize_path(L"..", parent, sizeof(parent) / sizeof(parent[0]));
                 wcopy(CWD, sizeof(CWD) / sizeof(CWD[0]), parent);
-                w->loaded = 0;
-                return;
+                w->loaded = 0; return;
             }
             if (ly >= 98) {
                 int row = (ly - 98) / 20;
                 if (row < w->entry_count) {
+                    w->sel = row; w->prop_show = 0; w->prop_msg = 0;
                     CHAR16 next[256];
                     wcopy(next, sizeof(next) / sizeof(next[0]), CWD);
-                    if (wlen(next) && next[wlen(next)-1] != L'\\')
-                        wcat(next, sizeof(next)/sizeof(next[0]), L"\\");
-                    wcat(next, sizeof(next)/sizeof(next[0]), w->entries[row].name);
+                    if (wlen(next) && next[wlen(next) - 1] != L'\\')
+                        wcat(next, sizeof(next) / sizeof(next[0]), L"\\");
+                    wcat(next, sizeof(next) / sizeof(next[0]), w->entries[row].name);
                     if (w->entries[row].dir) {
                         EFI_FILE_PROTOCOL *chk = NULL;
                         if (open_path(next, &chk, EFI_FILE_MODE_READ, 0)) {
                             chk->Close(chk);
-                            if (wlen(next) < 255) {
-                                wcopy(CWD, sizeof(CWD) / sizeof(CWD[0]), next);
-                                w->loaded = 0;
-                            }
+                            if (wlen(next) < 255) { wcopy(CWD, sizeof(CWD) / sizeof(CWD[0]), next); w->loaded = 0; }
                         }
                     } else {
-                        int t = win_open(WIN_TERM);
-                        if (t >= 0) {
-                            term_putc(&wins[t], 'F'); term_putc(&wins[t], ':');
-                            term_putc(&wins[t], ' ');
-                            for (int k = 0; next[k] && k < 60; ++k) term_putc(&wins[t], (char)next[k]);
-                            term_putc(&wins[t], '\n');
+                        int elen = (int)wlen(next);
+                        if ((elen >= 4 && weq(next + elen - 4, L".wct")) ||
+                            (elen >= 4 && weq(next + elen - 4, L".wet")) ||
+                            (elen >= 4 && weq(next + elen - 4, L".dwc"))) {
+                            wct_ui_open_file(next);
+                        } else if ((elen >= 4 && weq(next + elen - 4, L".txt")) ||
+                                   (elen >= 7 && weq(next + elen - 7, L".wctpkg"))) {
+                            int e = win_open(WIN_EDIT);
+                            if (e >= 0) { wcopy(wins[e].edit_path, 256, next); gedit_load(&wins[e]); }
+                        } else {
+                            int t = win_open(WIN_TERM);
+                            if (t >= 0) {
+                                term_putc(&wins[t], 'F'); term_putc(&wins[t], ':'); term_putc(&wins[t], ' ');
+                                for (int k = 0; next[k] && k < 60; ++k) term_putc(&wins[t], (char)next[k]);
+                                term_putc(&wins[t], '\n');
+                            }
                         }
                     }
                 }
             }
         }
-        (void)old;
         return;
     }
-    /* taskbar */
     if (mouse_y >= (int)gfx_h - 34) {
-        int bx = 8;
+        int bx = 78;
         for (int i = 0; i < WIN_MAX; ++i) {
             if (!wins[i].alive) continue;
-            if (mouse_x >= bx && mouse_x < bx + 150) { win_focus(i); return; }
-            bx += 160;
+            if (mouse_x >= bx && mouse_x < bx + 140) { win_focus(i); return; }
+            bx += 146;
         }
     }
-    /* desktop icons */
-    for (int i = 0; i < 5; ++i) {
-        int x = 40 + i * 176, y = 75;
-        if (mouse_x >= x && mouse_x < x + 160 && mouse_y >= y && mouse_y < y + 74) {
-            if (i == 0) win_open(WIN_FILES);
-            else if (i == 1) win_open(WIN_TERM);
-            else if (i == 2) win_open(WIN_SETTINGS);
-            else if (i == 3) theme_index = (theme_index + 1) % 5;
-            else gfx_done = 1;
-            return;
-        }
-    }
+    ui_icon_click();
 }
 
-
-static void apply_theme(void)
-{
-    switch (theme_index) {
-    case 0: gfx_bg=gfx_rgb(6,12,26);  gfx_top=gfx_rgb(18,44,86);  gfx_panel=gfx_rgb(16,30,52);  gfx_accent=gfx_rgb(84,170,255); break;
-    case 1: gfx_bg=gfx_rgb(10,10,16); gfx_top=gfx_rgb(30,32,48);  gfx_panel=gfx_rgb(22,24,36);  gfx_accent=gfx_rgb(140,160,220); break;
-    case 2: gfx_bg=gfx_rgb(5,16,12);   gfx_top=gfx_rgb(10,48,32);  gfx_panel=gfx_rgb(14,34,24);  gfx_accent=gfx_rgb(60,210,140); break;
-    case 3: gfx_bg=gfx_rgb(0,10,0);    gfx_top=gfx_rgb(0,40,0);    gfx_panel=gfx_rgb(0,26,0);    gfx_accent=gfx_rgb(0,255,90);  break;
-    default: gfx_bg=gfx_rgb(16,12,4);  gfx_top=gfx_rgb(62,38,8);   gfx_panel=gfx_rgb(38,28,10);  gfx_accent=gfx_rgb(255,190,70); break;
-    }
-    gfx_text_c = gfx_rgb(235,240,250);
-    gfx_dim = gfx_rgb(150,160,180);
-}
+/* ---------- main loop ---------- */
 
 static void gui_loop(void)
 {
-    gfx_done = 0;
-    focus_win = -1;
-    z_top = 10;
-    mouse_x = (int)gfx_w / 2;
-    mouse_y = (int)gfx_h / 2;
+    gfx_done = 0; focus_win = -1; z_top = 10;
+    theme_index = 5;      /* wcteos 默认纸片主题 */
+    apply_theme();
+    mouse_x = (int)gfx_w / 2; mouse_y = (int)gfx_h / 2;
     mouse_down = mouse_was_down = 0;
+    cursor_bg_x = cursor_bg_y = -1;
     for (int i = 0; i < WIN_MAX; ++i) wins[i].alive = 0;
+    /* 测试用：\wct\autoterm 存在时开机自动开一个终端窗口 */
+    {
+        EFI_FILE_PROTOCOL *f = NULL;
+        if (open_path(L"\\wct\\autoterm", &f, EFI_FILE_MODE_READ, 0)) {
+            f->Close(f);
+            win_open(WIN_TERM);
+        }
+    }
+    dframe_end();
+    int dirty = 1, force_full = 1;
 
     while (!gfx_done) {
+        int prev_mx = mouse_x, prev_my = mouse_y;
+        int prev_cx = cursor_bg_x, prev_cy = cursor_bg_y;
+
         mouse_poll();
-        if (mouse_click) handle_click();
+        if (mouse_moved || mouse_click || mouse_wheel) dirty = 1;
+
+        int full = 0;
+        int drag_handled = 0;
+
+        /* 演示模式：\wct\uidemo 存在时按节奏自动切换面板（截图回归用） */
+        wct_ui_demo_start();
+        if (wct_ui_demo()) { dirty = 1; full = 1; }
+
+        if (mouse_wheel && focus_win >= 0 && wins[focus_win].alive && wins[focus_win].type == WIN_TERM) {
+            wins[focus_win].scroll += mouse_wheel * 3;
+            int maxs = wins[focus_win].trow - win_rows(&wins[focus_win]) + 1;
+            if (maxs < 0) maxs = 0;
+            if (wins[focus_win].scroll > maxs) wins[focus_win].scroll = maxs;
+            if (wins[focus_win].scroll < 0) wins[focus_win].scroll = 0;
+            full = 1;
+        }
+
+        if (mouse_click) { handle_click(); full = 1; }
+
         if (dragging >= 0 && wins[dragging].alive) {
             if (mouse_down) {
-                wins[dragging].x = mouse_x - drag_dx;
-                wins[dragging].y = mouse_y - drag_dy;
-                if (wins[dragging].y < 0) wins[dragging].y = 0;
-                if (wins[dragging].x < 0) wins[dragging].x = 0;
-            } else dragging = -1;
-        }
-        EFI_INPUT_KEY key;
-        if (!EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &key))) {
-            if (key.UnicodeChar == L's' && focus_win < 0) { win_open(WIN_SETTINGS); }
-            else if (key.ScanCode == 0x14) gfx_done = 1;
-            else if (key.ScanCode == 0x17) {
-                if (focus_win >= 0) win_close(focus_win);
-                else gfx_done = 1;
-            } else if (focus_win >= 0 && wins[focus_win].alive && wins[focus_win].type == WIN_SETTINGS) {
-                if (key.UnicodeChar >= L'1' && key.UnicodeChar <= L'5') {
-                    theme_index = (int)(key.UnicodeChar - L'1');
-                    apply_theme();
+                GuiWin *dw = &wins[dragging];
+                int nx = mouse_x - drag_dx, ny = mouse_y - drag_dy;
+                if (nx < 0) nx = 0; if (ny < 0) ny = 0;
+                if (nx + dw->w > (int)gfx_w) nx = (int)gfx_w - dw->w;
+                if (ny + dw->h > (int)gfx_h - 34) ny = (int)gfx_h - 34 - dw->h;
+                if (nx < 0) nx = 0; if (ny < 0) ny = 0;
+
+                if (!df_active) dframe_begin(dw->x, dw->y, dw->w, dw->h);
+
+                if (df_active) {
+                    if (nx != df_x || ny != df_y) {
+                        dframe_move(nx, ny, prev_cx, prev_cy);
+                        drag_handled = 1; dirty = 0; force_full = 0;
+                    } else if (mouse_x != prev_mx || mouse_y != prev_my) {
+                        cursor_restore_bg();
+                        gfx_cursor();
+                        gfx_present_rect(prev_cx, prev_cy, 10, 16);
+                        gfx_present_rect(mouse_x, mouse_y, 10, 16);
+                        drag_handled = 1; dirty = 0;
+                    }
+                } else {
+                    /* dframe_begin failed: fall back to live move */
+                    dw->x = nx; dw->y = ny; full = 1;
                 }
-            } else if (focus_win >= 0 && wins[focus_win].alive && wins[focus_win].type == WIN_SETTINGS) {
-                if (key.UnicodeChar >= L'1' && key.UnicodeChar <= L'5') {
-                    theme_index = (int)(key.UnicodeChar - L'1');
-                    apply_theme();
+            } else {
+                /* Mouse released: drop */
+                if (df_active) {
+                    int fx = df_x, fy = df_y;
+                    cursor_restore_bg();
+                    dframe_restore_bg();
+                    dframe_present(df_x, df_y);
+                    gfx_cursor();
+                    gfx_present_rect(mouse_x, mouse_y, 10, 16);
+                    dframe_end();
+                    wins[dragging].x = fx;
+                    wins[dragging].y = fy;
+                    full = 1; dirty = 1;
                 }
-            } else if (focus_win >= 0 && wins[focus_win].alive && wins[focus_win].type == WIN_TERM) {
-                handle_term_key(&wins[focus_win], key);
+                dragging = -1;
             }
         }
-        apply_theme();
-        draw_all();
-        gfx_present();
-        ST->BootServices->Stall(16000);
+
+        EFI_INPUT_KEY key;
+        if (!EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &key))) {
+            if (wct_ui_key(&key)) { dirty = 1; full = 1; continue; }
+            if (key.ScanCode == 0x15) {
+                invert_mouse = !invert_mouse;
+                dirty = 1; full = 1;
+            } else {
+                if (dragging >= 0) {
+                    if (df_active) {
+                        int fx = df_x, fy = df_y;
+                        cursor_restore_bg();
+                        dframe_restore_bg();
+                        dframe_present(df_x, df_y);
+                        dframe_end();
+                        wins[dragging].x = fx;
+                        wins[dragging].y = fy;
+                    }
+                    dragging = -1;
+                }
+                dirty = 1; full = 1;
+                if (key.ScanCode == 0x14) gfx_done = 1;
+                else if (key.ScanCode == 0x17) {
+                    if (focus_win >= 0) win_close(focus_win);
+                    else gfx_done = 1;
+                } else if (focus_win >= 0 && wins[focus_win].alive && wins[focus_win].type == WIN_TERM) {
+                    handle_term_key(&wins[focus_win], key);
+                } else if (focus_win >= 0 && wins[focus_win].alive && wins[focus_win].type == WIN_EDIT) {
+                    gedit_key(&wins[focus_win], key);
+                }
+            }
+        }
+
+        if (!drag_handled && dirty) {
+            UINT64 gui_t0 = 0;
+            { UINT32 lo, hi; __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi)); gui_t0 = ((UINT64)hi << 32) | lo; }
+            if (full || force_full) {
+                apply_theme();
+                draw_all();
+                gfx_present();
+            } else if (mouse_x != prev_mx || mouse_y != prev_my) {
+                cursor_restore_bg();
+                gfx_cursor();
+                gfx_present_rect(prev_cx, prev_cy, 10, 16);
+                gfx_present_rect(mouse_x, mouse_y, 10, 16);
+            }
+            {
+                UINT32 lo, hi;
+                __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+                proc_add_ticks(proc_pid_gui, (((UINT64)hi << 32) | lo) - gui_t0);
+            }
+            dirty = 0; force_full = 0;
+        }
+
+        ST->BootServices->Stall(1000);
     }
+    dframe_end();
 }
 
 static void cmd_gui(void)
 {
-    if (EFI_IS_ERROR(ST->BootServices->LocateProtocol(&gop_guid, NULL, (VOID **)&gfx)) ||
-        !gfx || !gfx->Mode || !gfx->Mode->FrameBufferBase) {
-        outln(L"gui: GOP framebuffer not available");
-        return;
+    /* OVMF 的 GOP 可能异步加载，给它 3 秒；否则一进入就判“没有帧缓冲”会白屏退出 */
+    EFI_STATUS gs = EFI_IS_ERROR(ST->BootServices->LocateProtocol(&gop_guid, NULL, (VOID **)&gfx));
+    for (int wait = 0; wait < 30 && (gs || !gfx || !gfx->Mode || !gfx->Mode->FrameBufferBase); ++wait) {
+        ST->BootServices->Stall(100000);
+        gs = EFI_IS_ERROR(ST->BootServices->LocateProtocol(&gop_guid, NULL, (VOID **)&gfx));
+    }
+    if (gs || !gfx || !gfx->Mode || !gfx->Mode->FrameBufferBase) {
+        outln(L"gui: GOP framebuffer not available"); return;
     }
     gfx_w = gfx->Mode->Info->HorizontalResolution;
     gfx_h = gfx->Mode->Info->VerticalResolution;
     gfx_stride = gfx->Mode->Info->PixelsPerScanLine;
     gfx_hw = (UINT32 *)(UINTN)gfx->Mode->FrameBufferBase;
-    gfx_fb = gfx_hw;
+    /* 双缓冲：所有绘制落在 RAM 的后备缓冲，gfx_present() 一次性按行批量刷进显存。
+       分配失败才退回直写，保证低内存下仍能出画面。 */
     gfx_back = NULL;
-    UINTN bytes = gfx_stride * gfx_h * 4;
-    if (!EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, bytes, (VOID **)&gfx_back)) && gfx_back)
-        gfx_fb = gfx_back;
-
-    /* 输入设备在启动时可能尚未注册（OVMF 驱动异步加载）→ 轮询等待，最多 3 秒 */
-    EFI_GUID spg = { 0x31878C87, 0x0B75, 0x11D5, { 0x9A, 0x4F, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D } };
-    EFI_GUID apg = { 0x8D59D32B, 0xC655, 0x4AE9, { 0x9B, 0x15, 0xF2, 0x59, 0x04, 0x99, 0x2A, 0x43 } };
-    EFI_SIMPLE_POINTER_PROTOCOL *sp = NULL;
-    EFI_ABSOLUTE_POINTER_PROTOCOL *ap = NULL;
-    for (int i = 0; i < 15; ++i) {
-        if (!sp && !EFI_IS_ERROR(ST->BootServices->LocateProtocol(&spg, NULL, (VOID **)&sp)) && sp) mouse = sp;
-        if (!ap && !EFI_IS_ERROR(ST->BootServices->LocateProtocol(&apg, NULL, (VOID **)&ap)) && ap) abs_ptr = ap;
-        if (mouse || abs_ptr) break;
-        hid_init();
-        if (hid_ready) break;
-        ST->BootServices->Stall(200000);
+    {
+        VOID *buf = NULL;
+        UINTN bytes = gfx_stride * gfx_h * 4;
+        if (!EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, bytes, &buf)) && buf) {
+            gfx_back = (UINT32 *)buf;
+            for (UINTN i = 0; i < gfx_stride * gfx_h; ++i) gfx_back[i] = 0;
+        }
     }
-    mouse = sp; abs_ptr = ap;
+    gfx_fb = gfx_back ? gfx_back : gfx_hw;
+
+    EFI_SIMPLE_POINTER_PROTOCOL *sp = NULL;
+    EFI_GUID spg = { 0x31878C87, 0x0B75, 0x11D5, { 0x9A, 0x4F, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D } };
+    if (!EFI_IS_ERROR(ST->BootServices->LocateProtocol(&spg, NULL, (VOID **)&sp))) mouse = sp; else mouse = NULL;
+    EFI_ABSOLUTE_POINTER_PROTOCOL *ap = NULL;
+    EFI_GUID apg = { 0x8D59D32B, 0xC655, 0x4AE9, { 0x9B, 0x15, 0xF2, 0x59, 0x04, 0x99, 0x2A, 0x43 } };
+    if (!EFI_IS_ERROR(ST->BootServices->LocateProtocol(&apg, NULL, (VOID **)&ap))) abs_ptr = ap; else abs_ptr = NULL;
+
+    hid_ready = 0; hid_io = NULL;
     if (!mouse && !abs_ptr) hid_init();
+    /* 固件没给指针协议、也没有 USB HID 时，直接用 i8042 */
+    if (!mouse && !abs_ptr && !hid_ready) {
+        if (!ps2_mouse_ready()) ps2_mouse_init();
+        if (ps2_mouse_ready()) outln(L"mouse: PS/2 fallback engaged");
+    }
+    invert_mouse = 0;
 
     gfx_original_mode = ST->ConOut->Mode->Mode;
     gfx_active = 1;
     ST->ConOut->EnableCursor(ST->ConOut, FALSE);
     gui_loop();
     gfx_active = 0;
+    dframe_end();
     if (gfx_back) { ST->BootServices->FreePool(gfx_back); gfx_back = NULL; }
     ST->ConOut->SetMode(ST->ConOut, gfx_original_mode);
     ST->ConOut->EnableCursor(ST->ConOut, TRUE);
@@ -695,7 +1282,4 @@ static void cmd_gui(void)
     print_banner();
 }
 
-static void cmd_exitgui(void)
-{
-    outln(L"exitgui: not in GUI (run gui first)");
-}
+static void cmd_exitgui(void) { outln(L"exitgui: not in GUI (run gui first)"); }

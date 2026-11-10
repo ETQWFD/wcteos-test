@@ -102,3 +102,19 @@ C:\wct> date
 - 没有管道、通配符、命令替换，也不支持 `&&` / `|`
 - 路径分隔符用 `\`，大小写不敏感
 - 只挂载 FAT32；NTFS/ext4 不识别
+
+## 新增命令（本轮实测）
+
+| 命令 | 说明 |
+| --- | --- |
+| `ipconfig` / `netstat` | 打印驱动名、ip、网关、dhcp/arp/link 状态与收发包数 |
+| `route` | 打印当前网络配置（无路由表） |
+| `ping` | 对网关发 4 个 ICMP echo，打印应答数与最小往返 TSC 周期 |
+| `attrib FILE` | 文件属性：名称、字节数、目录/只读/隐藏/系统位 |
+| `del FILE` / `rd DIR` | `rm` 的别名 |
+| `type FILE` | `cat` 的别名 |
+| `md DIR` | `mkdir` 的别名 |
+| `run FILE.wct` | 执行 .wct 模块（支持 WCTX 打包格式） |
+
+`ping` 只对网关做，因为这版没有 DNS 和路由表；TCG 下周期数随宿主调度波动，
+只作参考，不代表真实网络时延。

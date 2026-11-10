@@ -1,6 +1,3 @@
-#ifndef WCT_EFI_H
-#define WCT_EFI_H
-
 #ifndef WCT_NATIVE_EFI_H
 #define WCT_NATIVE_EFI_H
 
@@ -267,6 +264,53 @@ typedef struct {
     UINTN FrameBufferSize;
 } EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE;
 
+typedef struct {
+    INT32 RelativeMovementX;
+    INT32 RelativeMovementY;
+    INT32 RelativeMovementZ;
+    BOOLEAN LeftButton;
+    BOOLEAN RightButton;
+} EFI_SIMPLE_POINTER_STATE;
+
+typedef struct {
+    UINT64 ResolutionX;
+    UINT64 ResolutionY;
+    UINT64 ResolutionZ;
+    BOOLEAN LeftButton;
+    BOOLEAN RightButton;
+} EFI_SIMPLE_POINTER_MODE;
+
+typedef struct EFI_SIMPLE_POINTER_PROTOCOL {
+    EFI_STATUS (EFIAPI *Reset)(struct EFI_SIMPLE_POINTER_PROTOCOL*, BOOLEAN);
+    EFI_STATUS (EFIAPI *GetState)(struct EFI_SIMPLE_POINTER_PROTOCOL*, EFI_SIMPLE_POINTER_STATE*);
+    EFI_EVENT WaitForInput;
+    EFI_SIMPLE_POINTER_MODE *Mode;
+} EFI_SIMPLE_POINTER_PROTOCOL;
+
+typedef struct {
+    UINT64 CurrentX;
+    UINT64 CurrentY;
+    UINT64 CurrentZ;
+    UINT32 ActiveButtons;
+} EFI_ABSOLUTE_POINTER_STATE;
+
+typedef struct {
+    UINT64 AbsoluteMinX;
+    UINT64 AbsoluteMinY;
+    UINT64 AbsoluteMinZ;
+    UINT64 AbsoluteMaxX;
+    UINT64 AbsoluteMaxY;
+    UINT64 AbsoluteMaxZ;
+    UINT32 Attributes;
+} EFI_ABSOLUTE_POINTER_MODE;
+
+typedef struct EFI_ABSOLUTE_POINTER_PROTOCOL {
+    EFI_STATUS (EFIAPI *Reset)(struct EFI_ABSOLUTE_POINTER_PROTOCOL*, BOOLEAN);
+    EFI_STATUS (EFIAPI *GetState)(struct EFI_ABSOLUTE_POINTER_PROTOCOL*, EFI_ABSOLUTE_POINTER_STATE*);
+    EFI_EVENT WaitForInput;
+    EFI_ABSOLUTE_POINTER_MODE *Mode;
+} EFI_ABSOLUTE_POINTER_PROTOCOL;
+
 typedef struct EFI_GRAPHICS_OUTPUT_PROTOCOL {
     EFI_STATUS (EFIAPI *QueryMode)(struct EFI_GRAPHICS_OUTPUT_PROTOCOL*, UINT32, UINTN*, EFI_GRAPHICS_OUTPUT_MODE_INFORMATION**);
     EFI_STATUS (EFIAPI *SetMode)(struct EFI_GRAPHICS_OUTPUT_PROTOCOL*, UINT32);
@@ -275,15 +319,14 @@ typedef struct EFI_GRAPHICS_OUTPUT_PROTOCOL {
 } EFI_GRAPHICS_OUTPUT_PROTOCOL;
 
 #endif
-/* 分配类型与内存类型常量（UEFI 规范值） */
-#define AllocateAnyPages   0
-#define AllocateMaxAddress 1
-#define AllocateAddress    2
-#define EfiReservedMemoryType 0
-#define EfiLoaderCode      1
-#define EfiLoaderData      2
-#define EfiBootServicesCode 3
-#define EfiBootServicesData 4
-#define EfiConventionalMemory 7
 
-#endif /* WCT_EFI_H */
+/* 分配类型 / 内存类型（UEFI 规范值） */
+#define AllocateAnyPages        0
+#define AllocateMaxAddress      1
+#define AllocateAddress         2
+#define EfiReservedMemoryType   0
+#define EfiLoaderCode           1
+#define EfiLoaderData           2
+#define EfiBootServicesCode     3
+#define EfiBootServicesData     4
+#define EfiConventionalMemory   7

@@ -1,122 +1,130 @@
-# .wct 可执行文件编译手册
+# .wct 可执行文件编译手册（wcteos 测试版）
 
-## 一、.wct 是什么
+本手册里的命令全部在 Linux 上实测通过，可以直接复制执行。产物是能被 wcteos 内核
+`run` 命令或文件管理器双击执行的 `.wct` 文件。
 
-.wct 是 wcteos 的可执行程序格式：一个扁平二进制，入口在文件偏移 0，由内核 `wctmod.c` 加载到内存后直接调用。它不依赖 PE/ELF 头，也不链接任何系统库（没有 libc），需要的内核能力通过 `api` 命令列出的函数表获得。
+## 一、为什么是"扁平二进制 + 头"
 
-文件结构（当前实现）：
+`.wct` 不是 ELF/PE。内核加载器只做三件事：校验头、按头里的基址分配页、跳到入口偏移。
+所以文件 = 24 字节 WCT1 头 + 去掉所有段信息的机器码。这和"裸二进制"是两件事：
 
+| 层 | 内容 | 作用 |
+| --- | --- | --- |
+| 代码段 | `objcopy -O binary` 得到的机器码 | 真正执行的指令 |
+| WCT1 头 | magic/版本/段数/基址/入口偏移/长度/CRC32 | 内核校验、定位入口、拒绝损坏文件 |
+| WCTX 容器（可选） | magic `WCTX` + 32 位密钥 + 长度 + XOR 载荷 | 提高反编译门槛，载荷仍是完整 WCT1 镜像 |
+
+所以 `.wct` 有头、有长度、有 CRC，能被加载器验证；直接用 `xxd` 看是密文（WCTX）。
+注意：WCTX 是**混淆**不是密码学加密——密钥随文件一起走，只能挡住随手反汇编，挡不住
+有决心的逆向。文档里不会把它说成"无法反编译"。
+
+## 二、环境
+
+```bash
+sudo apt-get update
+sudo apt-get install -y gcc-mingw-w64-x86-64 mtools dosfstools
 ```
-偏移 0     代码入口（第一条指令）
-偏移 4     可选：版本号（UINT32，小端）
-其余       代码与只读数据，位置无关
-```
 
-内核加载流程：读文件 → 分配内存 → 复制 → 取首 4 字节为入口偏移（无版本号时按 0 处理）→ 调用。
+模块必须按 **Windows x64 调用约定**编译（第一个参数在 RCX），所以用 mingw 的 GCC 和
+binutils，不能用 Linux 原生 ELF 链接器。
 
-## 二、写一个最小 .wct
+## 三、最小可运行示例
+
+`hello.c`：
 
 ```c
-/* hello.c —— 不依赖任何头文件 */
-typedef unsigned short u16;
-typedef unsigned int   u32;
+typedef unsigned long long u64;
+typedef struct {
+    void (*puts)(const char *);
+    void (*putu)(unsigned long long);
+    void (*clear)(void);
+    u64 version;
+    const char *kernel_tag;
+} WCT_API;
 
-/* 内核通过固定地址传入的调用表（wctmod.c 里注册） */
-struct wct_api {
-    void (*print)(const char *s);
-    void (*print_cn)(const u16 *s);
-    int  (*file_read)(const char *path, void *buf, int cap);
-    int  (*file_write)(const char *path, const void *buf, int len);
-};
-
-static struct wct_api *api;
-
-void wct_main(struct wct_api *a)
+int wct_main(WCT_API *api)   /* 入口名固定为 wct_main */
 {
-    api = a;
-    api->print("hello from hello.wct\n");
+    api->puts("[module] hello from a .wct module\r\n");
+    api->puts("kernel: ");
+    api->puts(api->kernel_tag);
+    api->puts("\r\n");
+    return 0;                 /* 返回值回显到内核串口 */
 }
 ```
 
-入口函数名必须是 `wct_main`，签名 `void wct_main(struct wct_api *)`。内核按名字找不到符号，所以实际做法是把入口放在文件第一个函数，并在链接时用 `-e wct_main` 固定起始地址。
-
-## 三、编译（Linux / WSL）
+编译、链接、封头、打包，一条条复制执行：
 
 ```bash
-# 目标：32 位扁平二进制，位置无关，无 libc
-gcc -m32 -O2 -fno-stack-protector -fno-builtin -nostdlib \
-    -fno-asynchronous-unwind-tables -fno-pic \
-    -Wl,-e,wct_main -Wl,--oformat=binary \
-    -o hello.wct hello.c
+# 1) 编译成目标文件
+x86_64-w64-mingw32-gcc -ffreestanding -fno-stack-protector -fno-builtin \
+    -mno-red-zone -O2 -c hello.c -o hello.o
+
+# 2) 链接成 PE，再抽成扁平二进制
+x86_64-w64-mingw32-ld -e wct_main --image-base 0x00400000 -o hello.elf hello.o
+x86_64-w64-mingw32-objcopy -O binary hello.elf hello.bin
+
+# 3) 算入口偏移：裸二进制从最低 .text 段 VMA 开始，入口偏移必须相对 VMA，而不是相对链接基址
+VMA=$(x86_64-w64-mingw32-objdump -h hello.elf | awk '$2==".text"{print $4; exit}')
+SYM=$(x86_64-w64-mingw32-nm hello.elf | awk '/ T wct_main$/{print $1}')
+OFF=$((0x$SYM - 0x$VMA))
+
+# 4) 封 WCT1 头（脚本在仓库 wct/demo/build-wct.py）
+python3 build-wct.py hello.bin $OFF hello.wct 0x00400000
+
+# 5) 可选：打包成 WCTX 混淆容器
+./wctpack hello.wct hello.p.wct 0xA5C3E71B
 ```
 
-要点：
+`build-wct.py` 头结构（与 `wct/kernel_new/wctmod.c` 完全一致，可自行实现）：
 
-- `-nostdlib`：不链 libc，内核不提供
-- `-fno-pic` + `--oformat=binary`：产出裸二进制，没有 ELF 头
-- `-Wl,-e,wct_main`：把入口固定在第一字节
-- 需要 64 位时用 `gcc -m64`，但内核的 .wct 加载器按 32 位调用约定实现，当前只保证 32 位可用
+| 偏移 | 类型 | 含义 |
+| --- | --- | --- |
+| 0 | char[4] | `WCT1` |
+| 4 | u8 | 版本 = 1 |
+| 5 | u8 | 保留 = 0 |
+| 6 | u16 | 段数 = 1 |
+| 8 | u32 | 基址（示例 0x00400000） |
+| 12 | u32 | 入口偏移（OFF） |
+| 16 | u32 | 代码长度 |
+| 20 | u32 | 代码 CRC32 |
 
-编译完拷到 FAT32 的 `\wct\` 下：
+`wctpack` 的 WCTX 头：`WCTX` + u32 key + u32 len + len 字节载荷（载荷 = 完整 WCT1 镜像，
+逐字节 XOR 密钥的四个字节循环）。内核先解包再走 WCT1 校验，CRC 仍然有效。
 
-```bash
-mcopy -o -i esp.img hello.wct ::/wct/hello.wct
-```
+## 四、跑起来
 
-系统里运行：
+放到 ESP 的 `\wct\` 目录里，然后：
 
-```
-C:\wct> run hello.wct
-```
+- 终端：`run \wct\hello.p.wct`
+- 图形界面：文件管理器里双击该文件
 
-桌面里也可以双击 `hello.wct`。
-
-## 四、.wet 一键脚本
-
-纯文本，一行一条终端命令，`#` 开头为注释：
-
-```
-# deploy.wet
-mkdir \wct\app
-cp \wct\hello.wct \wct\app\hello.wct
-run \wct\app\hello.wct
-```
-
-执行：`script deploy.wet`，或在桌面双击。
-
-## 五、.dwc 依赖声明
-
-等价于 .dll 的系统文件与依赖描述，纯文本键值：
+内核串口会打印：
 
 ```
-name=hello
-version=1.0
-requires=kernel>=0.9
-requires=net
-entry=\wct\hello.wct
+  [wct] loading module at 0x00400000  (fixed base)  entry=+0
+  [module] hello from a .wct module
+  [wct] module returned 0
 ```
 
-`pkg hello.dwc` 会登记依赖；缺依赖时终端给出提示，不加载程序。当前只做登记与检查，不做自动下载。
+这段日志是本机实测输出（WCTX 打包版同样通过）。
 
-## 六、.wcte 压缩格式
+## 五、必须遵守的约束
 
-WCTE-Compressor 的容器格式，源码在 `WCTE-Compressor/`：
+1. 入口函数名必须是 `wct_main`，签名 `int wct_main(WCT_API *)`。
+2. 只能通过 `WCT_API` 表输出，不能调 UEFI Boot Services、不能碰 Linux 系统调用。
+3. 代码必须位置无关（RIP 相对寻址），因为首选基址被占用时加载器会退化到任意页。
+4. 不要用全局可写数据依赖绝对地址；需要缓冲区就在栈上开或让内核 API 提供。
+5. 浮点、SSE、异常处理都没有；越界写会直接把客户机打挂。
 
-```
-magic "WCTE" | 版本 u16 | 条目数 u16 | 每条目: 名字长度 u8 + 名字 + 原始长度 u32 + 压缩长度 u32 + 数据
-```
+## 六、打包与安装
 
-压缩算法是自实现的 RLE + 字典混合，面向文本与代码；打包/解包命令：
+安装程序本身也是 `.wct`（`wct/installer/install.wct` 的编译方式与上面完全相同），
+镜像压缩格式 `.wcte` 的工具在 `wct/wcte/`，用法见 `docs/COMMANDS.md`。
 
-```bash
-./wcte c  src/  out.wcte
-./wcte x  out.wcte  dst/
-```
-
-速度：在开发机上对本项目源码（约 600KB 文本）实测打包 0.9s、解包 0.4s。**没有与 WIM 做同机对比**，因此“比 WIM 快两三倍”目前没有数据支撑，不能作为结论；需要的话得在同一台机器上用 wimlib 对同一份数据跑一遍才有可比性。
-
-## 七、限制
+## 七、限制（如实写）
 
 - 没有动态链接、没有堆分配器接口，缓冲区要静态分配
 - 不能直接调用 UEFI 协议，只能走内核 API 表
 - 没有异常处理，越界写会直接崩在客户机里
+- WCTX 只是混淆；没有做真正的对称加密
+- 还没有与 WIM 同机对比的数据，因此不宣称 `.wcte` 比 WIM 快
