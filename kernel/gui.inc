@@ -115,6 +115,8 @@ static int ui_tray_click(void);
 static int ui_icon_click(void);
 static int net_link_up(void);
 static const char *net_short_status(void);
+static void ui_desk_menu_open(int x, int y);
+static void ui_desk_draw_menu(void);
 static void ui_open_taskmgr(void);
 static void ui_next_wallpaper(void);
 static void wct_ui_open_file(const CHAR16 *path);
@@ -553,6 +555,51 @@ static int file_is_protected(const CHAR16 *path, const CHAR16 *name)
     return 0;
 }
 
+
+/* 新建文件/文件夹：桌面右键使用 */
+static int file_create(const CHAR16 *path, int isdir)
+{
+    EFI_FILE_PROTOCOL *f = NULL;
+    if (!open_path(path, &f, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0)) return 0;
+    if (isdir) {
+        static UINT8 ib[512];
+        for (int i = 0; i < 512; ++i) ib[i] = 0;
+        EFI_FILE_INFO *fi = (EFI_FILE_INFO *)ib;
+        fi->Attribute = EFI_FILE_DIRECTORY;
+        int n = 0; while (path[n] && n < 200) ++n;
+        /* 取文件名部分 */
+        int st = n; while (st > 0 && path[st - 1] != L'\\') --st;
+        int k = 0; for (int i = st; i < n && k < 200; ++i) fi->FileName[k++] = path[i];
+        fi->FileName[k] = 0;
+        f->SetInfo(f, &file_info_guid, sizeof(EFI_FILE_INFO) + k * 2, ib);
+    }
+    f->Close(f);
+    return 1;
+}
+
+static void file_unique_name(const CHAR16 *base, const CHAR16 *ext, CHAR16 *out, int cap)
+{
+    wcopy(out, cap, base); if (ext && ext[0]) wcat(out, cap, ext);
+    CHAR16 path[256];
+    EFI_FILE_PROTOCOL *f = NULL;
+    for (int i = 2; i < 10; ++i) {
+        wcopy(path, 256, CWD); wcat(path, 256, L"\\"); wcat(path, 256, out);
+        if (!open_path(path, &f, EFI_FILE_MODE_READ, 0)) return;
+        f->Close(f);
+        wcopy(out, cap, base);
+        CHAR16 num[4]; num[0] = (CHAR16)(L'0' + i); num[1] = 0;
+        wcat(out, cap, num); if (ext && ext[0]) wcat(out, cap, ext);
+    }
+}
+
+static void file_make(const CHAR16 *base, const CHAR16 *ext, int isdir)
+{
+    CHAR16 name[64], path[256];
+    file_unique_name(base, ext, name, 64);
+    wcopy(path, 256, CWD); wcat(path, 256, L"\\"); wcat(path, 256, name);
+    file_create(path, isdir);
+}
+
 static void file_delete(GuiWin *w)
 {
     if (w->sel < 0 || w->sel >= w->entry_count) { w->prop_msg = 3; return; }
@@ -634,22 +681,23 @@ static int win_rows(GuiWin *w) { int r = (w->h - 80) / 16; if (r < 2) r = 2; if 
 
 static void draw_term(GuiWin *w)
 {
+    gfx_fill(w->x + 2, w->y + 28, w->w - 4, w->h - 30, gfx_rgb(22, 24, 28));
     int rows = win_rows(w);
     int start = w->trow - rows + 1 - w->scroll;
     if (start < 0) start = 0; if (start > w->trow) start = w->trow;
     for (int r = 0; r < rows; ++r) {
         int line = start + r;
         if (line >= 0 && line <= w->trow)
-            gfx_text_n(w->x + 8, w->y + 38 + r * 16, w->text[line], WIN_COLS, gfx_text_c);
+            gfx_text_n(w->x + 8, w->y + 38 + r * 16, w->text[line], WIN_COLS, gfx_rgb(214,220,228));
     }
     /* 像 Linux 一样：提示符紧跟最后一行输出，而不是钉在窗口底部 */
     int used = 0;
     for (int r = 0; r < rows; ++r) { int line = start + r; if (line >= 0 && line <= w->trow) used = r + 1; }
     int yy = w->y + 38 + used * 16;
     if (yy > w->y + w->h - 24) yy = w->y + w->h - 24;
-    gfx_text(w->x + 8, yy, "tty2>", gfx_accent);
-    gfx_text(w->x + 80, yy, w->input, gfx_text_c);
-    gfx_fill(w->x + 80 + w->input_len * 8, yy + 14, 7, 2, gfx_text_c);
+    gfx_text(w->x + 8, yy, "tty2>", gfx_rgb(126, 200, 132));
+    gfx_text(w->x + 80, yy, w->input, gfx_rgb(224, 230, 238));
+    gfx_fill(w->x + 80 + w->input_len * 8, yy + 14, 7, 2, gfx_rgb(224, 230, 238));
 }
 
 static void gedit_load(GuiWin *w)
@@ -796,9 +844,21 @@ static void draw_icon_cell(int x, int y, int kind, const CHAR16 *label)
     case 4: ico_task(x + 10, y + 10); break;
     default: ico_info(x + 10, y + 10); break;
     }
-    int lw = 0;
-    for (const CHAR16 *q = label; *q; ++q) lw += ((unsigned short)*q <= 126) ? 8 : 16;
-    gfx_text_w(x + (64 - lw) / 2, y + 50, label, hot ? gfx_accent : gfx_text_c);
+    /* 桌面图标格只有 64px 宽，中文 16px/字：超过 4 字必须折行，否则会被裁掉半截 */
+    UINT32 col = hot ? gfx_accent : gfx_text_c;
+    CHAR16 l1[5] = { 0 }, l2[16] = { 0 };
+    int n = 0; for (const CHAR16 *q = label; *q; ++q) ++n;
+    int cut = (n > 4) ? (n + 1) / 2 : n;   /* 5 字拆 3+2，6 字拆 3+3，避免出现孤字 */
+    int k = 0;
+    for (const CHAR16 *q = label; *q && k < cut; ++q) l1[k++] = *q;
+    int j = 0;
+    for (const CHAR16 *q = label + cut; *q && j < 14; ++q) l2[j++] = *q;
+    int w1 = 0; for (int t = 0; l1[t]; ++t) w1 += ((unsigned short)l1[t] <= 126) ? 8 : 16;
+    gfx_text_w(x + (64 - w1) / 2, y + 46, l1, col);
+    if (l2[0]) {
+        int w2 = 0; for (int t = 0; l2[t]; ++t) w2 += ((unsigned short)l2[t] <= 126) ? 8 : 16;
+        gfx_text_w(x + (64 - w2) / 2, y + 62, l2, col);
+    }
 }
 
 #define DESK_ICONS 6
@@ -1000,7 +1060,7 @@ static void handle_click(void)
     if (mouse_rclick) {
         mouse_rclick = 0;
         if (mouse_y >= (int)gfx_h - 34) ui_open_taskmgr();
-        else ui_next_wallpaper();
+        else ui_desk_menu_open(mouse_x, mouse_y);
         return;
     }
     if (wct_ui_click()) return;

@@ -1659,6 +1659,25 @@ static void cmd_ping(CHAR16 *args)
     outln(L"  注：TCG 下周期数随宿主调度波动，不代表网络时延");
 }
 
+static void cmd_ren(CHAR16 *args)
+{
+    CHAR16 *a, *b;
+    split_first(args, &a, &b);
+    if (!a[0] || !b[0]) { outln(L"ren: usage: ren OLD NEW（可只改后缀）"); return; }
+    CHAR16 src[256], dst[256];
+    path_for(src, sizeof(src) / sizeof(src[0]), a);
+    path_for(dst, sizeof(dst) / sizeof(dst[0]), b);
+    static UINT8 buf[65536];
+    UINTN n = read_whole_file(src, buf, sizeof(buf));
+    if (!n) { outln(L"ren: source not found or empty"); return; }
+    if (!write_bytes(dst, buf, n)) { outln(L"ren: cannot write target"); return; }
+    EFI_FILE_PROTOCOL *f = NULL;
+    if (!open_path(src, &f, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0)) { outln(L"ren: cannot delete source"); return; }
+    EFI_STATUS st = f->Delete(f);
+    if (EFI_IS_ERROR(st)) { outln(L"ren: renamed but source still present"); return; }
+    out(L"renamed -> "); outln(dst);
+}
+
 static void cmd_cp(CHAR16 *args)
 {
     CHAR16 *src_arg, *dst_arg;
@@ -3207,6 +3226,7 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"type")) cmd_cat(args);
     else if (weq(command, L"md")) cmd_mkdir(args);
     else if (weq(command, L"rd")) cmd_rm(args);
+    else if (weq(command, L"ren") || weq(command, L"rename")) cmd_ren(args);
     else if (weq(command, L"cp")) cmd_cp(args);
     else if (weq(command, L"mkdir")) cmd_mkdir(args);
     else if (weq(command, L"cd")) cmd_cd(args);

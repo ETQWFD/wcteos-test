@@ -1,0 +1,36 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>.wct 编译手册 - wcteos 测试版</title><link rel="stylesheet" href="_doc.css"></head><body><div class="wrap">
+<h1>.wct 编译手册</h1>
+<p>下面命令在 Linux 上实测通过，可直接复制。产物能被内核 <code>run</code> 或文件管理器双击执行。</p>
+<h2>文件结构</h2>
+<table><tr><th>层</th><th>内容</th><th>作用</th></tr>
+<tr><td>代码段</td><td>objcopy 抽出的扁平机器码</td><td>真正执行的指令</td></tr>
+<tr><td>WCT1 头（24 字节）</td><td>magic/版本/段数/基址/入口偏移/长度/CRC32</td><td>内核校验与定位入口</td></tr>
+<tr><td>WCTX（可选）</td><td>WCTX + 密钥 + 长度 + XOR 载荷</td><td>提高反编译门槛</td></tr></table>
+<p>所以它不是裸二进制：有头、有长度、有 CRC；打包后是密文。WCTX 是混淆不是加密，密钥随文件走。</p>
+<h2>命令</h2>
+<pre>sudo apt-get update
+sudo apt-get install -y gcc-mingw-w64-x86-64
+
+x86_64-w64-mingw32-gcc -ffreestanding -fno-stack-protector -fno-builtin \
+    -mno-red-zone -O2 -c hello.c -o hello.o
+x86_64-w64-mingw32-ld -e wct_main --image-base 0x00400000 -o hello.elf hello.o
+x86_64-w64-mingw32-objcopy -O binary hello.elf hello.bin
+
+VMA=$(x86_64-w64-mingw32-objdump -h hello.elf | awk '$2==".text"{print $4; exit}')
+SYM=$(x86_64-w64-mingw32-nm hello.elf | awk '/ T wct_main$/{print $1}')
+OFF=$((0x$SYM - 0x$VMA))
+
+python3 build-wct.py hello.bin $OFF hello.wct 0x00400000
+./wctpack hello.wct hello.p.wct 0xA5C3E71B</pre>
+<h2>入口与 API</h2>
+<pre>typedef struct { void (*puts)(const char*); void (*putu)(unsigned long long);
+                 void (*clear)(void); unsigned long long version;
+                 const char *kernel_tag; } WCT_API;
+int wct_main(WCT_API *api) { api-&gt;puts("hello\r\n"); return 0; }</pre>
+<h2>约束</h2>
+<ul><li>入口名固定 <code>wct_main</code>，签名 <code>int wct_main(WCT_API*)</code>。</li>
+<li>只能走 API 表，不能调 UEFI 协议或系统调用。</li>
+<li>代码必须位置无关；首选基址被占用时会重定位。</li>
+<li>没有堆、浮点、异常处理。</li></ul>
+<div class="foot"><a href="index.html">返回首页</a> · 仓库 <a href="https://github.com/ETQWFD/wcteos-test">wcteos-test</a></div>
+</div></body></html>

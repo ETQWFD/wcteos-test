@@ -97,7 +97,7 @@ static int net_rtl_probe(void)
         const PCI_INFO *p = pci_get(i);
         if (!p || p->class_code != 0x02) continue;
         if (p->vendor != 0x10EC) continue;                 /* Realtek */
-        if (p->device != 0x8139 && p->device != 0x8139) continue;
+        if (p->device != 0x8139 && p->device != 0x8138) continue;
         if (!(p->bar[0] & 1u)) continue;                   /* 需要 IO BAR */
         io = p->bar[0] & 0xFFFC;
         break;
@@ -469,33 +469,32 @@ int net_arp_test(void)
     return 0;
 }
 
+static int put_dec(char *b, int i, int cap, UINT32 v)
+{
+    char t[10]; int n = 0;
+    if (!v) t[n++] = '0';
+    while (v && n < 10) { t[n++] = (char)('0' + v % 10); v /= 10; }
+    while (n && i < cap - 1) b[i++] = t[--n];
+    return i;
+}
+
+static int put_ip(char *b, int i, int cap, UINT32 v)
+{
+    for (int k = 0; k < 4 && i < cap - 1; ++k) {
+        if (k) b[i++] = '.';
+        i = put_dec(b, i, cap, (v >> (k * 8)) & 0xFF);
+    }
+    return i;
+}
+
 const char *net_short_status(void)
 {
-    static char b[48];
-    int i = 0;
+    static char b[96];
+    int cap = (int)sizeof(b), i = 0;
     for (const char *d = net_drv_name; *d && i < 10; ++d) b[i++] = *d;
-    if (net_ip) {
-        b[i++] = ' '; b[i++] = 'i'; b[i++] = 'p'; b[i++] = '=';
-        char t[4]; for (int k = 0; k < 4; ++k) t[k] = (char)((net_ip >> (k * 8)) & 0xFF);
-        for (int k = 0; k < 4; ++k) { if (k) b[i++] = '.'; int v = t[k]; char d[3]; int dn = 0;
-            if (!v) d[dn++] = '0'; while (v) { d[dn++] = (char)('0' + v % 10); v /= 10; }
-            while (dn) b[i++] = d[--dn]; }
-    }
-    if (net_ip) {
-        b[i++] = ' '; b[i++] = 'i'; b[i++] = 'p'; b[i++] = '=';
-        char t[4]; for (int k = 0; k < 4; ++k) t[k] = (char)((net_ip >> (k * 8)) & 0xFF);
-        for (int k = 0; k < 4; ++k) {
-            if (k) b[i++] = '.';
-            int v = t[k]; char d[3]; int dn = 0;
-            if (!v) d[dn++] = '0';
-            while (v) { d[dn++] = (char)('0' + v % 10); v /= 10; }
-            while (dn) b[i++] = d[--dn];
-        }
-    }
-    const char *tail = "  link:up  arp:ok";
-    if (!net_link) tail = "  link:down";
-    else if (!net_arp_ok) tail = "  link:up  arp:no";
-    for (const char *q = tail; *q && i < 46; ++q) b[i++] = *q;
+    if (net_ip) { b[i++] = ' '; b[i++] = 'i'; b[i++] = 'p'; b[i++] = '='; i = put_ip(b, i, cap, net_ip); }
+    const char *tail = net_link ? (net_arp_ok ? "  link:up  arp:ok" : "  link:up  arp:no") : "  link:down";
+    for (const char *q = tail; *q && i < cap - 1; ++q) b[i++] = *q;
     b[i] = 0;
     return b;
 }

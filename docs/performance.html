@@ -1,0 +1,18 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>内核运行报告 - wcteos 测试版</title><link rel="stylesheet" href="_doc.css"></head><body><div class="wrap">
+<h1>内核运行报告</h1>
+<p>测试环境：QEMU 6.2，TCG 纯软件模拟，无 KVM，384MB，单核，OVMF 固件，e1000 网卡。</p>
+<h2>启动</h2>
+<table><tr><th>阶段</th><th>结果</th></tr>
+<tr><td>固件→内核</td><td>成功进入 UEFI 应用，串口输出内核横幅</td></tr>
+<tr><td>GOP 图形</td><td>1024×768，32 位帧缓冲，纸片主题正常</td></tr>
+<tr><td>PS/2 鼠标</td><td>i8042 就绪，光标可移动</td></tr>
+<tr><td>e1000</td><td>52:54:00:12:34:56，DHCP 取得 10.0.2.15，ARP 网关成功</td></tr>
+<tr><td>.wct 模块</td><td>WCT1 与 WCTX 打包版均加载并返回 0</td></tr></table>
+<h2>内存拷贝与填充（rdtsc 原始计数）</h2>
+<pre>copy=3,958,994 cyc/MB   fill=648,771 cyc/MB</pre>
+<p>同一镜像另一次运行：copy=10,495,550 / fill=7,267,399 cyc/MB，差异 3 倍以上，来源是宿主调度与 TCG 翻译，不是内核本身。</p>
+<h2>结论</h2>
+<ul><li>TCG 下不能换算主频，也不能算 MB/s，因此本报告不做"比别的系统快"的结论。</li>
+<li>能确认的是功能正确：图形、鼠标、网络、模块加载、文件操作都在无头环境实测通过。</li>
+<li>要比较速度，必须在同一台真机上用相同镜像与相同测试程序对比。</li></ul>
+<div class="foot"><a href="index.html">返回首页</a></div></div></body></html>
