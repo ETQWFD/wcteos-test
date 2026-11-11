@@ -1,18 +1,74 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>内核运行报告 - wcteos 测试版</title><link rel="stylesheet" href="_doc.css"></head><body><div class="wrap">
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>内核运行报告 - wcteos 测试版</title><link rel="stylesheet" href="_doc.css">
+<style>pre{white-space:pre-wrap;word-break:break-all}</style></head><body><div class="wrap">
 <h1>内核运行报告</h1>
-<p>测试环境：QEMU 6.2，TCG 纯软件模拟，无 KVM，384MB，单核，OVMF 固件，e1000 网卡。</p>
-<h2>启动</h2>
-<table><tr><th>阶段</th><th>结果</th></tr>
-<tr><td>固件→内核</td><td>成功进入 UEFI 应用，串口输出内核横幅</td></tr>
-<tr><td>GOP 图形</td><td>1024×768，32 位帧缓冲，纸片主题正常</td></tr>
-<tr><td>PS/2 鼠标</td><td>i8042 就绪，光标可移动</td></tr>
-<tr><td>e1000</td><td>52:54:00:12:34:56，DHCP 取得 10.0.2.15，ARP 网关成功</td></tr>
-<tr><td>.wct 模块</td><td>WCT1 与 WCTX 打包版均加载并返回 0</td></tr></table>
-<h2>内存拷贝与填充（rdtsc 原始计数）</h2>
-<pre>copy=3,958,994 cyc/MB   fill=648,771 cyc/MB</pre>
-<p>同一镜像另一次运行：copy=10,495,550 / fill=7,267,399 cyc/MB，差异 3 倍以上，来源是宿主调度与 TCG 翻译，不是内核本身。</p>
-<h2>结论</h2>
-<ul><li>TCG 下不能换算主频，也不能算 MB/s，因此本报告不做"比别的系统快"的结论。</li>
-<li>能确认的是功能正确：图形、鼠标、网络、模块加载、文件操作都在无头环境实测通过。</li>
-<li>要比较速度，必须在同一台真机上用相同镜像与相同测试程序对比。</li></ul>
-<div class="foot"><a href="index.html">返回首页</a></div></div></body></html>
+<p>本报告只写实测到的东西，并给出复现命令。没有 KVM 的纯软件模拟环境下，任何“比别的系统快”的说法都不成立，所以这里不下这个结论。</p>
+
+<h2>一、测试环境</h2>
+<table><tr><th>项目</th><th>值</th></tr>
+<tr><td>虚拟化</td><td>QEMU 6.2，<code>-accel tcg</code>，无 /dev/kvm</td></tr>
+<tr><td>内存 / CPU</td><td>384MB，单核</td></tr>
+<tr><td>固件</td><td>OVMF 4MB（CODE + 每次全新的 VARS）</td></tr>
+<tr><td>磁盘</td><td>48MB FAT32 ESP，IDE</td></tr>
+<tr><td>网卡</td><td>e1000（另有 rtl8139 驱动）</td></tr>
+<tr><td>显示</td><td>GOP 1024×768，32 位帧缓冲</td></tr>
+<tr><td>镜像</td><td>wcteos-0.9-test.iso / 同一份 BOOTX64.EFI</td></tr></table>
+
+<h2>二、复现命令</h2>
+<pre>cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
+qemu-system-x86_64 -m 384 -smp 1 -display none -no-reboot -accel tcg \
+  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+  -drive if=pflash,format=raw,file=vars.fd \
+  -blockdev driver=file,filename=esp.img,node-name=e,locking=off \
+  -blockdev driver=raw,file=e,node-name=ed \
+  -device ide-hd,drive=ed,bus=ide.0,unit=0 \
+  -netdev user,id=n0 -device e1000,netdev=n0 \
+  -serial file:serial.log -monitor none</pre>
+<p>等 40 秒左右读 <code>serial.log</code>。图形截图用 monitor 的 <code>screendump</code>，路径必须是绝对路径。</p>
+
+<h2>三、启动各阶段实测结果</h2>
+<table><tr><th>阶段</th><th>串口/画面证据</th><th>结果</th></tr>
+<tr><td>固件加载 BOOTX64.EFI</td><td>内核横幅 + <code>wcteos Native 1.0</code></td><td>通过</td></tr>
+<tr><td>GOP 初始化</td><td>1024×768 纸片主题桌面</td><td>通过</td></tr>
+<tr><td>PS/2 鼠标</td><td><code>mouse: PS/2 i8042 ready (fallback)</code></td><td>通过</td></tr>
+<tr><td>e1000 + DHCP</td><td><code>net: e1000 52:54:00:12:34:56 ip=10.0.2.15 link:up arp:ok rx:3 tx:3</code></td><td>通过</td></tr>
+<tr><td>rtl8139</td><td><code>link:up arp:no rx:2 tx:5</code>（slirp 下连续收包不稳）</td><td>驱动能识别，DHCP/ARP 不稳定，未宣称可用</td></tr>
+<tr><td>音频 HDA</td><td><code>audio: HDA codecs=0 verb:no-response</code></td><td>无 codec 应答，未通过</td></tr>
+<tr><td>.wct 模块（WCT1）</td><td><code>[wct] loading module ... module returned 0</code></td><td>通过</td></tr>
+<tr><td>.wct 模块（WCTX 打包）</td><td>同上，且先解包再校验 CRC</td><td>通过</td></tr>
+<tr><td>文件属性 / 删除</td><td><code>attrib</code> 显示 16440 字节；系统文件拒删</td><td>通过</td></tr>
+<tr><td>网络命令</td><td><code>ipconfig</code> 输出 ip/gw/dhcp/arp/link；<code>ping</code> 4/4 应答</td><td>通过</td></tr></table>
+
+<h2>四、rdtsc 原始计数（不作性能结论）</h2>
+<pre>同一次运行的 bench 行：
+copy=3,958,994 cyc/MB   fill=648,771 cyc/MB
+
+另一次、同一镜像：
+copy=10,495,550 cyc/MB  fill=7,267,399 cyc/MB</pre>
+<p>两次差 3 倍以上。原因是 TCG 把每条指令翻译成宿主指令，宿主进程被调度走、缓存被挤占都会让计数剧烈波动。因此：</p>
+<ul>
+<li>不能把 cyc/MB 换算成 MB/s；</li>
+<li>不能用这些数反推 CPU 主频；</li>
+<li>不能用它证明“比普通系统快”。</li>
+</ul>
+
+<h2>五、能确认与不能确认</h2>
+<table><tr><th>能确认</th><th>不能确认</th></tr>
+<tr><td>内核能在 OVMF 下启动进桌面</td><td>真机上的启动耗时</td></tr>
+<tr><td>鼠标、键盘、GOP 图形可用</td><td>与 Windows/Linux 的速度对比</td></tr>
+<tr><td>e1000 下 DHCP 与 ARP 可用</td><td>rtl8139 在真实网络下的稳定性</td></tr>
+<tr><td>.wct / WCTX 模块能加载执行</td><td>音频输出是否可用</td></tr>
+<tr><td>文件读写、属性、删除保护可用</td><td>.wcte 与 WIM 的压缩速度对比</td></tr></table>
+<p>要做速度对比，必须在同一台真机、同一块盘、同一份测试程序上跑两组镜像，并给出多次采样的中位数。当前环境不具备这个条件，所以报告到此为止。</p>
+
+<h2>六、已知问题清单</h2>
+<ul>
+<li>ISO 的 El Torito 在部分沙箱 OVMF 里被跳过，会落到内置 shell；U 盘镜像可直接启动。</li>
+<li>HDA 音频无 codec 应答，没有可验证的声音输出。</li>
+<li>无线网卡没有驱动。</li>
+<li>安装程序尚未实现“写入硬盘 + 注册 UEFI 启动项 + 自动重启”的完整流程。</li>
+<li>没有 KVM，性能结论一律不成立。</li>
+</ul>
+
+<div class="foot"><a href="index.html">返回首页</a> · <a href="wct-compile.html">.wct 编译手册</a> · <a href="terminal.html">终端使用手册</a></div>
+</div></body></html>

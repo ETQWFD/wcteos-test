@@ -1,36 +1,176 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>.wct 编译手册 - wcteos 测试版</title><link rel="stylesheet" href="_doc.css"></head><body><div class="wrap">
-<h1>.wct 编译手册</h1>
-<p>下面命令在 Linux 上实测通过，可直接复制。产物能被内核 <code>run</code> 或文件管理器双击执行。</p>
-<h2>文件结构</h2>
-<table><tr><th>层</th><th>内容</th><th>作用</th></tr>
-<tr><td>代码段</td><td>objcopy 抽出的扁平机器码</td><td>真正执行的指令</td></tr>
-<tr><td>WCT1 头（24 字节）</td><td>magic/版本/段数/基址/入口偏移/长度/CRC32</td><td>内核校验与定位入口</td></tr>
-<tr><td>WCTX（可选）</td><td>WCTX + 密钥 + 长度 + XOR 载荷</td><td>提高反编译门槛</td></tr></table>
-<p>所以它不是裸二进制：有头、有长度、有 CRC；打包后是密文。WCTX 是混淆不是加密，密钥随文件走。</p>
-<h2>命令</h2>
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>.wct 可执行文件编译手册 - wcteos 测试版</title><link rel="stylesheet" href="_doc.css">
+<style>
+pre{white-space:pre-wrap;word-break:break-all}
+.note{background:#f3efe4;border-left:3px solid #34568a;padding:10px 14px;margin:16px 0}
+.warn{border-left-color:#a0523c}
+ol li{margin:6px 0}
+</style></head><body><div class="wrap">
+
+<h1>.wct 可执行文件编译手册</h1>
+<p>这份手册写给第一次编译 wcteos 模块的人。照着从第一节做到第九节，你会得到一个能被系统识别、双击就能运行的 <code>hello.wct</code>。每一步都给完整命令，不省略参数。</p>
+
+<div class="note">先说清楚：<b>.wct 不是裸二进制</b>。文件 = 24 字节 WCT1 头 + 扁平机器码；头里有 magic、基址、入口偏移、代码长度和 CRC32，内核加载前会校验。可选的 WCTX 容器再把整个 WCT1 镜像 XOR 混淆一层。WCTX 是混淆，不是加密，密钥随文件保存，只能挡住随手反汇编。</div>
+
+<h2>一、你要准备什么</h2>
+<table>
+<tr><th>项目</th><th>要求</th></tr>
+<tr><td>操作系统</td><td>Windows 10/11（推荐，下面给 MSYS2 步骤）或 Linux（Ubuntu/Debian 系）</td></tr>
+<tr><td>编译器</td><td>mingw-w64 的 x86_64 GCC + binutils，<b>不能</b>用普通 Linux ELF 编译器</td></tr>
+<tr><td>Python</td><td>3.8 以上，用来封 WCT1 头</td></tr>
+<tr><td>运行环境</td><td>wcteos 测试版 ISO 或 U 盘镜像，QEMU 或真机</td></tr>
+</table>
+
+<h2>二、安装工具链</h2>
+<h3>A. Windows（小白推荐）</h3>
+<ol>
+<li>打开 <code>https://www.msys2.org</code> 下载安装包，一路默认安装到 <code>C:\msys64</code>。</li>
+<li>在开始菜单里打开 <b>MSYS2 UCRT64</b>（不是 cmd，也不是 PowerShell）。</li>
+<li>粘贴下面两行，等它跑完：</li>
+</ol>
+<pre>pacman -Syu
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils python</pre>
+<p>装完验证（能打印版本号就说明成功）：</p>
+<pre>x86_64-w64-mingw32-gcc --version
+x86_64-w64-mingw32-ld --version
+python --version</pre>
+
+<h3>B. Linux（Ubuntu / Debian）</h3>
 <pre>sudo apt-get update
-sudo apt-get install -y gcc-mingw-w64-x86-64
+sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 python3</pre>
+<p>验证：</p>
+<pre>x86_64-w64-mingw32-gcc --version
+x86_64-w64-mingw32-objcopy --version</pre>
 
-x86_64-w64-mingw32-gcc -ffreestanding -fno-stack-protector -fno-builtin \
-    -mno-red-zone -O2 -c hello.c -o hello.o
-x86_64-w64-mingw32-ld -e wct_main --image-base 0x00400000 -o hello.elf hello.o
-x86_64-w64-mingw32-objcopy -O binary hello.elf hello.bin
+<div class="note warn">如果提示 <code>command not found</code>，说明上一步没装成功；先把安装命令重跑一遍，不要继续往下做。</div>
 
-VMA=$(x86_64-w64-mingw32-objdump -h hello.elf | awk '$2==".text"{print $4; exit}')
+<h2>三、写第一个模块 hello.c</h2>
+<p>新建一个文件夹，例如 <code>D:\wct-build</code>（Linux 下 <code>~/wct-build</code>），在里面新建 <code>hello.c</code>，内容一字不改地复制：</p>
+<pre>/* hello.c —— 最小 wcteos 模块 */
+typedef unsigned long long u64;
+
+typedef struct {
+    void (*puts)(const char *s);      /* 输出字符串 */
+    void (*putu)(u64 v);              /* 输出无符号整数 */
+    void (*clear)(void);              /* 清屏 */
+    u64 version;                      /* 内核 API 版本，当前为 1 */
+    const char *kernel_tag;           /* 例如 "WCT-Kernel" */
+} WCT_API;
+
+int wct_main(WCT_API *api)            /* 入口名必须是 wct_main */
+{
+    api-&gt;puts("hello from my first .wct module\r\n");
+    api-&gt;puts("kernel tag: ");
+    api-&gt;puts(api-&gt;kernel_tag);
+    api-&gt;puts("\r\n");
+    return 0;                          /* 返回值会打印到内核串口 */
+}</pre>
+<p>约定：入口函数名必须是 <code>wct_main</code>，第一个参数是 <code>WCT_API *</code>，返回 <code>int</code>。API 表只能使用上面这 5 个字段，不要自己加字段猜布局。</p>
+
+<h2>四、编译成目标文件</h2>
+<p>在 <code>hello.c</code> 所在目录执行：</p>
+<pre>x86_64-w64-mingw32-gcc -ffreestanding -fno-stack-protector -fno-builtin \
+    -mno-red-zone -O2 -c hello.c -o hello.o</pre>
+<p>每个参数的作用，别乱删：</p>
+<table>
+<tr><th>参数</th><th>为什么必须要</th></tr>
+<tr><td><code>-ffreestanding</code></td><td>告诉编译器没有操作系统和标准库，不生成对 printf/memcpy 的隐式调用</td></tr>
+<tr><td><code>-fno-stack-protector</code></td><td>内核不提供栈保护桩函数，开着会链接失败</td></tr>
+<tr><td><code>-fno-builtin</code></td><td>禁止编译器把循环优化成 memset/memcpy 调用</td></tr>
+<tr><td><code>-mno-red-zone</code></td><td>UEFI 固件中断会踩坏红区，必须关掉</td></tr>
+<tr><td><code>-O2</code></td><td>优化级别，可用 -O2 或 -Os</td></tr>
+</table>
+
+<h2>五、链接并抽成扁平二进制</h2>
+<pre>x86_64-w64-mingw32-ld -e wct_main --image-base 0x00400000 -o hello.elf hello.o
+x86_64-w64-mingw32-objcopy -O binary hello.elf hello.bin</pre>
+<p>为什么要用 mingw 而不是 Linux 的 <code>gcc -m64</code>：模块运行在 Windows x64 调用约定下（第一个参数放 RCX），Linux 的 System V 约定把参数放 RDI，调进去会拿到错误指针，直接崩。这是最多人踩的坑。</p>
+<p>为什么还要 <code>objcopy</code>：内核不解析 PE/ELF，只认连续机器码。objcopy 从最低有内容的段开始抽，所以下面算入口偏移要以段的 VMA 为基准，不能直接用链接基址。</p>
+
+<h2>六、算入口偏移</h2>
+<pre>VMA=$(x86_64-w64-mingw32-objdump -h hello.elf | awk '$2==".text"{print $4; exit}')
 SYM=$(x86_64-w64-mingw32-nm hello.elf | awk '/ T wct_main$/{print $1}')
 OFF=$((0x$SYM - 0x$VMA))
+echo "VMA=$VMA SYM=$SYM ENTRY_OFF=$OFF"</pre>
+<p>正常情况下 <code>OFF=0</code>。如果这里算错，内核会跳到代码中段，表现为 <code>#UD</code>、重启或死机——这是第二常见的坑。</p>
 
-python3 build-wct.py hello.bin $OFF hello.wct 0x00400000
-./wctpack hello.wct hello.p.wct 0xA5C3E71B</pre>
-<h2>入口与 API</h2>
-<pre>typedef struct { void (*puts)(const char*); void (*putu)(unsigned long long);
-                 void (*clear)(void); unsigned long long version;
-                 const char *kernel_tag; } WCT_API;
-int wct_main(WCT_API *api) { api-&gt;puts("hello\r\n"); return 0; }</pre>
-<h2>约束</h2>
-<ul><li>入口名固定 <code>wct_main</code>，签名 <code>int wct_main(WCT_API*)</code>。</li>
-<li>只能走 API 表，不能调 UEFI 协议或系统调用。</li>
-<li>代码必须位置无关；首选基址被占用时会重定位。</li>
-<li>没有堆、浮点、异常处理。</li></ul>
-<div class="foot"><a href="index.html">返回首页</a> · 仓库 <a href="https://github.com/ETQWFD/wcteos-test">wcteos-test</a></div>
+<h2>七、封 WCT1 头</h2>
+<p>新建 <code>build-wct.py</code>，内容完整复制：</p>
+<pre>import struct, sys, zlib
+
+if len(sys.argv) not in (4, 5):
+    print("usage: build-wct.py code.bin entry_offset out.wct [base]")
+    sys.exit(2)
+
+code = open(sys.argv[1], "rb").read()
+entry_off = int(sys.argv[2], 0)
+base = int(sys.argv[4], 0) if len(sys.argv) &gt; 4 else 0x00400000
+
+hdr = bytearray(24)
+hdr[0:4] = b"WCT1"                 # magic
+hdr[4] = 1                         # 版本
+hdr[5] = 0                         # 保留
+struct.pack_into("&lt;H", hdr, 6, 1)  # 段数
+struct.pack_into("&lt;I", hdr, 8, base)
+struct.pack_into("&lt;I", hdr, 12, entry_off)
+struct.pack_into("&lt;I", hdr, 16, len(code))
+struct.pack_into("&lt;I", hdr, 20, zlib.crc32(code) &amp; 0xFFFFFFFF)
+
+open(sys.argv[3], "wb").write(hdr + code)
+print("wct written:", sys.argv[3], "code=", len(code), "entry=+0x%X" % entry_off)</pre>
+<pre>python build-wct.py hello.bin $OFF hello.wct 0x00400000</pre>
+<p>头字段表（和内核 <code>wctmod.c</code> 一一对应）：</p>
+<table><tr><th>偏移</th><th>类型</th><th>含义</th></tr>
+<tr><td>0</td><td>char[4]</td><td><code>WCT1</code></td></tr>
+<tr><td>4</td><td>u8</td><td>版本 = 1</td></tr>
+<tr><td>5</td><td>u8</td><td>保留 = 0</td></tr>
+<tr><td>6</td><td>u16</td><td>段数 = 1</td></tr>
+<tr><td>8</td><td>u32</td><td>首选加载基址（示例 0x00400000）</td></tr>
+<tr><td>12</td><td>u32</td><td>入口偏移（相对代码起点）</td></tr>
+<tr><td>16</td><td>u32</td><td>代码长度（字节）</td></tr>
+<tr><td>20</td><td>u32</td><td>代码 CRC32</td></tr></table>
+
+<h2>八、打包成 WCTX（可选，但推荐）</h2>
+<p>把 WCT1 镜像再包一层，文件开头变成 <code>WCTX</code>，直接看是乱码：</p>
+<pre>./wctpack hello.wct hello.p.wct 0xA5C3E71B
+# 不写密钥就用默认 0xA5C3E71B</pre>
+<p>内核加载顺序：看到 <code>WCTX</code> → 取 32 位密钥 → 解 XOR → 得到完整 WCT1 镜像 → 继续校验 CRC 与长度。所以打包不会破坏校验，也不能只打包一半。</p>
+<div class="note warn">再说一遍：这是混淆。密钥就写在文件里，任何人拿到文件都能解。要真正防止逆向，需要服务端签名或硬件密钥，这版没做。</div>
+
+<h2>九、放进镜像并运行</h2>
+<p><b>方法一：改 ESP 镜像（QEMU 测试最快）</b></p>
+<pre>mcopy -o -i esp.img hello.p.wct ::/wct/HELLO.WCT</pre>
+<p>注意 FAT 短文件名：内核按名字查找，建议用 8.3 形式（<code>HELLO.WCT</code>），长文件名在部分工具下会变成 <code>HELLO~1.WCT</code> 而找不到。</p>
+<p><b>方法二：真机 / U 盘</b>：挂载 U 盘的 EFI 分区，把文件复制到 <code>\wct\</code> 目录即可。</p>
+<p><b>运行</b>：终端输入 <code>run \wct\HELLO.WCT</code>，或在文件管理器里双击它。成功时串口输出：</p>
+<pre>  [wct] loading module at 0x00400000  (fixed base)  entry=+0
+  hello from my first .wct module
+  kernel tag: WCT-Kernel
+  [wct] module returned 0</pre>
+
+<h2>十、常见错误对照表</h2>
+<table>
+<tr><th>现象</th><th>原因</th><th>处理</th></tr>
+<tr><td><code>undefined reference to ...</code></td><td>用了 libc 函数或没关栈保护</td><td>只用 API 表；确认 <code>-ffreestanding -fno-stack-protector -fno-builtin</code></td></tr>
+<tr><td>加载后立即 <code>#UD</code> / 重启</td><td>入口偏移算错，跳进指令中段</td><td>按第六节用 VMA 与符号地址重算 OFF</td></tr>
+<tr><td><code>checksum mismatch</code></td><td>文件被截断，或打包时长度写错</td><td>重新 <code>objcopy</code> 与 <code>build-wct.py</code>，不要手工改头</td></tr>
+<tr><td><code>run: script not found</code></td><td>路径不对，或 FAT 里是短名别名</td><td>用 <code>ls \wct</code> 看真实名字，改用 8.3 名</td></tr>
+<tr><td>模块里输出乱码</td><td>字符串不是 ASCII，API 只接受 ASCII</td><td>中文请走内核图形 API，模块输出保持英文</td></tr>
+<tr><td>能加载但返回非 0</td><td>模块自己 return 了别的值</td><td>正常，返回值会原样打印，便于调试</td></tr>
+</table>
+
+<h2>十一、多文件与限制</h2>
+<pre>x86_64-w64-mingw32-gcc -ffreestanding -fno-stack-protector -fno-builtin \
+    -mno-red-zone -O2 -c a.c -o a.o
+x86_64-w64-mingw32-gcc -ffreestanding -fno-stack-protector -fno-builtin \
+    -mno-red-zone -O2 -c b.c -o b.o
+x86_64-w64-mingw32-ld -e wct_main --image-base 0x00400000 -o hello.elf a.o b.o</pre>
+<ul>
+<li>没有堆分配器，缓冲区用静态数组或栈。</li>
+<li>没有浮点、SSE、异常处理，越界写会把客户机打挂。</li>
+<li>不能调 UEFI Boot Services，也不能用 Linux 系统调用。</li>
+<li>代码必须位置无关：首选基址被占用时内核会重定位到任意页。</li>
+</ul>
+
+<div class="foot"><a href="index.html">返回首页</a> · <a href="terminal.html">终端使用手册</a> · <a href="performance.html">内核运行报告</a></div>
 </div></body></html>
