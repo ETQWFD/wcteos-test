@@ -1,0 +1,75 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>命令参考 - wcteos 测试版</title>
+<style>
+:root{--paper:#efe9da;--ink:#2a2724;--accent:#34568a;--line:#cfc7b4;--code:#25282e;--muted:#6f6a60}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.75 "Noto Serif CJK SC","Source Han Serif SC",Georgia,serif}
+.layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:36px;max-width:1180px;margin:0 auto;padding:32px 24px 80px}
+aside{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto}
+.brand{font:600 13px/1.4 system-ui,sans-serif;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:14px}
+nav a{display:block;font:14px/1.5 system-ui,sans-serif;color:var(--ink);text-decoration:none;padding:5px 0 5px 10px;border-left:2px solid transparent}
+nav a:hover{color:var(--accent);border-left-color:var(--accent)}
+.back{font:13px system-ui,sans-serif;color:var(--muted);text-decoration:none;display:inline-block;margin-top:22px}
+main{background:#f7f3e9;border:1px solid var(--line);padding:34px 42px 48px;box-shadow:4px 4px 0 #d8d1bf}
+h1{font-size:30px;line-height:1.3;margin:0 0 20px;padding-bottom:14px;border-bottom:3px double var(--line)}
+h2{font-size:21px;margin:34px 0 10px;color:var(--accent);padding-bottom:6px;border-bottom:1px solid var(--line)}
+h3{font-size:17px;margin:22px 0 8px}
+p{margin:10px 0}
+code{background:#e7e0cf;padding:1px 5px;border-radius:2px;font:13.5px/1.5 "JetBrains Mono",Consolas,monospace}
+pre.code{background:var(--code);color:#e6e8ea;padding:16px 18px;overflow:auto;border-radius:3px;margin:14px 0;font:13.5px/1.7 "JetBrains Mono",Consolas,monospace}
+pre.code code{background:none;padding:0;color:inherit;font-size:inherit}
+table{border-collapse:collapse;width:100%;margin:14px 0;font:14.5px/1.6 system-ui,sans-serif}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#e7e0cf;font-weight:600}
+ul,ol{margin:10px 0 10px 22px}
+.callout{background:#e9e2cf;border-left:4px solid var(--accent);padding:12px 16px;margin:16px 0;font:14.5px/1.7 system-ui,sans-serif}
+footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font:13px system-ui,sans-serif;color:var(--muted)}
+footer a{color:var(--accent);text-decoration:none;margin-right:14px}
+@media(max-width:820px){.layout{grid-template-columns:1fr}aside{position:static;max-height:none}main{padding:24px 18px}}
+</style></head><body><div class="layout">
+<aside><div class="brand">wcteos 测试版 · 文档</div><nav><a href="#一-帮助与系统">一、帮助与系统</a>
+<a href="#二-目录与文件">二、目录与文件</a>
+<a href="#三-执行">三、执行</a>
+<a href="#四-网络">四、网络</a>
+<a href="#五-进程">五、进程</a>
+<a href="#六-外观">六、外观</a>
+<a href="#七-日志">七、日志</a>
+<a href="#八-卷与电源">八、卷与电源</a>
+<a href="#九-别名对照">九、别名对照</a>
+<a href="#十-不存在的命令">十、不存在的命令</a>
+<a href="#十一-退出码">十一、退出码</a></nav><a class="back" href="../index.html">← 返回首页</a></aside>
+<main><h1 id="命令参考">命令参考</h1>
+<p>终端全部命令的完整清单：语法、参数、示例、注意事项。按功能分组，找不到的命令用 <code>help</code> 或 <code>pkg</code> 查看是否由包提供。</p>
+<p>约定：<code>[方括号]</code> 表示可选参数，<code>大写</code> 表示要替换成实际值。路径用反斜杠，命令不区分大小写。</p>
+<h2 id="一-帮助与系统">一、帮助与系统</h2>
+<table><thead><tr><th>命令</th><th>语法</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td><code>help</code></td><td><code>help</code></td><td>打印命令表</td><td><code>help</code></td></tr><tr><td><code>ver</code></td><td><code>ver</code></td><td>版本、架构、兼容层</td><td><code>ver</code></td></tr><tr><td><code>about</code></td><td><code>about</code></td><td>作者与版本信息</td><td><code>about</code></td></tr><tr><td><code>hw</code></td><td><code>hw</code></td><td>CPU、内存、固件、显卡</td><td><code>hw</code></td></tr><tr><td><code>sysinfo</code></td><td><code>sysinfo</code></td><td>同 <code>hw</code></td><td><code>sysinfo</code></td></tr><tr><td><code>date</code></td><td><code>date</code></td><td>UEFI 固件时钟</td><td><code>date</code></td></tr><tr><td><code>mem</code></td><td>`mem [SIZE\</td><td>free]`</td><td>显示内存；<code>free</code> 释放测试占用</td><td><code>mem free</code></td></tr><tr><td><code>api</code></td><td><code>api</code></td><td>内核 API 表版本与函数</td><td><code>api</code></td></tr><tr><td><code>native</code></td><td><code>native</code></td><td>是否原生启动</td><td><code>native</code></td></tr><tr><td><code>tty</code></td><td><code>tty</code></td><td>显示 tty1/tty2</td><td><code>tty</code></td></tr></tbody></table>
+<h2 id="二-目录与文件">二、目录与文件</h2>
+<table><thead><tr><th>命令</th><th>语法</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td><code>ls</code></td><td><code>ls [PATH]</code></td><td>列目录</td><td><code>ls \wct</code></td></tr><tr><td><code>cd</code></td><td><code>cd [DIR]</code></td><td>切目录，无参回根</td><td><code>cd \wct\wall</code></td></tr><tr><td><code>pwd</code></td><td><code>pwd</code></td><td>当前目录</td><td><code>pwd</code></td></tr><tr><td><code>cat</code></td><td><code>cat FILE</code></td><td>显示文本</td><td><code>cat \wct\autorun</code></td></tr><tr><td><code>type</code></td><td><code>type FILE</code></td><td><code>cat</code> 别名</td><td><code>type \wct\note.txt</code></td></tr><tr><td><code>new</code></td><td><code>new FILE</code></td><td>建空文件</td><td><code>new \wct\a.txt</code></td></tr><tr><td><code>create</code></td><td><code>create FILE</code></td><td><code>new</code> 别名</td><td><code>create \wct\a.txt</code></td></tr><tr><td><code>touch</code></td><td><code>touch FILE</code></td><td><code>new</code> 别名</td><td><code>touch \wct\a.txt</code></td></tr><tr><td><code>write</code></td><td><code>write FILE TEXT</code></td><td>覆盖写入一行</td><td><code>write \wct\a.txt hello</code></td></tr><tr><td><code>edit</code></td><td><code>edit FILE</code></td><td>行编辑器，<code>Ctrl+S</code> 保存</td><td><code>edit \wct\a.txt</code></td></tr><tr><td><code>cp</code></td><td><code>cp SRC DST</code></td><td>复制文件，覆盖目标</td><td><code>cp a.wct b.wct</code></td></tr><tr><td><code>ren</code></td><td><code>ren OLD NEW</code></td><td>改名，可只改后缀</td><td><code>ren a.wct a.cok</code></td></tr><tr><td><code>rename</code></td><td><code>rename OLD NEW</code></td><td><code>ren</code> 别名</td><td><code>rename a.txt a.bak</code></td></tr><tr><td><code>rm</code></td><td><code>rm FILE</code></td><td>删文件</td><td><code>rm \wct\a.txt</code></td></tr><tr><td><code>del</code></td><td><code>del FILE</code></td><td><code>rm</code> 别名</td><td><code>del \wct\a.txt</code></td></tr><tr><td><code>rd</code></td><td><code>rd FILE</code></td><td><code>rm</code> 别名</td><td><code>rd \wct\a.txt</code></td></tr><tr><td><code>mkdir</code></td><td><code>mkdir DIR</code></td><td>建目录</td><td><code>mkdir \wct\backup</code></td></tr><tr><td><code>md</code></td><td><code>md DIR</code></td><td><code>mkdir</code> 别名</td><td><code>md \wct\backup</code></td></tr><tr><td><code>attrib</code></td><td><code>attrib FILE</code></td><td>大小、属性位、类型</td><td><code>attrib \wct\hello.wct</code></td></tr></tbody></table>
+<h3 id="受保护-不能删除的文件">受保护、不能删除的文件</h3>
+<ul><li><code>\EFI\BOOT\BOOTX64.EFI</code>、<code>BOOTIA32.EFI</code>：引导文件；</li><li>扩展名 <code>.dwc</code>、<code>.glf</code>：壁纸定义；</li><li>位于 <code>\EFI</code> 目录下的系统文件。</li></ul>
+<p>删除时返回“拒绝”，不是 bug，是保护规则。要改这些文件，请在宿主机上操作镜像，不要在系统内删。</p>
+<h2 id="三-执行">三、执行</h2>
+<table><thead><tr><th>命令</th><th>语法</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td><code>run</code></td><td><code>run FILE</code></td><td>运行 <code>.wct</code>/<code>.cok</code>/<code>.wxtk</code> 模块；其他按脚本</td><td><code>run \wct\hello.wct</code></td></tr><tr><td><code>script</code></td><td><code>script FILE</code></td><td>同 <code>run</code>，按脚本处理</td><td><code>script \wct\autorun</code></td></tr><tr><td><code>pkg</code></td><td>`pkg [list\</td><td>install FILE]`</td><td>包管理</td><td><code>pkg install \wct\tool.wctpkg</code></td></tr></tbody></table>
+<p>脚本规则：逐行执行；空行跳过；<code>#</code> 开头为注释；一行一条命令，不支持管道与重定向。</p>
+<h2 id="四-网络">四、网络</h2>
+<table><thead><tr><th>命令</th><th>语法</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td><code>ipconfig</code></td><td><code>ipconfig</code></td><td>网卡、IP、网关、DHCP、ARP、计数</td><td><code>ipconfig</code></td></tr><tr><td><code>netstat</code></td><td><code>netstat</code></td><td>同 <code>ipconfig</code></td><td><code>netstat</code></td></tr><tr><td><code>route</code></td><td><code>route</code></td><td>同 <code>ipconfig</code> 的网络摘要</td><td><code>route</code></td></tr><tr><td><code>ping</code></td><td><code>ping</code></td><td>ping 网关 4 次，报最小 TSC 周期</td><td><code>ping</code></td></tr></tbody></table>
+<p>限制：只支持网关，不支持指定 IP、次数、域名；没有 DNS、没有路由表、没有 HTTP。</p>
+<h2 id="五-进程">五、进程</h2>
+<table><thead><tr><th>命令</th><th>语法</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td><code>ps</code></td><td><code>ps</code></td><td>进程列表</td><td><code>ps</code></td></tr><tr><td><code>pid</code></td><td><code>pid</code></td><td>当前 shell 的 PID</td><td><code>pid</code></td></tr><tr><td><code>kill</code></td><td><code>kill PID</code></td><td>结束普通进程</td><td><code>kill 3</code></td></tr><tr><td><code>sudo</code></td><td><code>sudo kill PID</code></td><td>结束受保护进程</td><td><code>sudo kill 3</code></td></tr></tbody></table>
+<h2 id="六-外观">六、外观</h2>
+<table><thead><tr><th>命令</th><th>语法</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td><code>theme</code></td><td><code>theme [NAME]</code></td><td>切主题：<code>ubuntu</code> <code>wct</code> <code>matrix</code> <code>amber</code> <code>ice</code></td><td><code>theme matrix</code></td></tr><tr><td><code>color</code></td><td>`color NAME\</td><td>reset`</td><td>终端文字颜色</td><td><code>color green</code></td></tr><tr><td><code>font</code></td><td>`font [N\</td><td>next]`</td><td>控制台字体/模式</td><td><code>font next</code></td></tr><tr><td><code>banner</code></td><td><code>banner</code></td><td>重画标题</td><td><code>banner</code></td></tr><tr><td><code>clear</code></td><td><code>clear</code></td><td>清屏</td><td><code>clear</code></td></tr></tbody></table>
+<h2 id="七-日志">七、日志</h2>
+<table><thead><tr><th>命令</th><th>语法</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td><code>log</code></td><td>`log [save\</td><td>clear\</td><td>LEVEL TEXT]`</td><td>查看/保存/清空/追加日志</td><td><code>log 3 test</code></td></tr></tbody></table>
+<h2 id="八-卷与电源">八、卷与电源</h2>
+<table><thead><tr><th>命令</th><th>语法</th><th>说明</th><th>示例</th></tr></thead><tbody><tr><td><code>usb</code></td><td>`usb [N\</td><td>boot\</td><td>rescan]`</td><td>列卷/切卷/重扫</td><td><code>usb 1</code></td></tr><tr><td><code>poweroff</code></td><td><code>poweroff</code></td><td>关机</td><td><code>poweroff</code></td></tr><tr><td><code>reboot</code></td><td><code>reboot</code></td><td>重启</td><td><code>reboot</code></td></tr><tr><td><code>gui</code></td><td><code>gui</code></td><td>回桌面</td><td><code>gui</code></td></tr><tr><td><code>exitgui</code></td><td><code>exitgui</code></td><td>退出桌面到终端</td><td><code>exitgui</code></td></tr><tr><td><code>linux</code></td><td><code>linux</code></td><td>内置 Linux 兼容演示</td><td><code>linux</code></td></tr></tbody></table>
+<h2 id="九-别名对照">九、别名对照</h2>
+<table><thead><tr><th>别名</th><th>等价命令</th></tr></thead><tbody><tr><td><code>type</code></td><td><code>cat</code></td></tr><tr><td><code>del</code>、<code>rd</code></td><td><code>rm</code></td></tr><tr><td><code>md</code></td><td><code>mkdir</code></td></tr><tr><td><code>rename</code></td><td><code>ren</code></td></tr><tr><td><code>create</code>、<code>touch</code></td><td><code>new</code></td></tr><tr><td><code>script</code></td><td><code>run</code></td></tr><tr><td><code>sysinfo</code></td><td><code>hw</code></td></tr><tr><td><code>netstat</code>、<code>route</code></td><td><code>ipconfig</code></td></tr></tbody></table>
+<h2 id="十-不存在的命令">十、不存在的命令</h2>
+<p>以下命令<strong>没有实现</strong>，输入会得到 <code>unknown command</code>：</p>
+<p><code>ping 1.1.1.1</code>、<code>nslookup</code>、<code>curl</code>、<code>wget</code>、<code>ip</code>、<code>ifconfig</code>、<code>netstat -an</code>、<code>tasklist</code>、<code>dir /s</code>、<code>copy</code>、<code>move</code>、<code>xcopy</code>、<code>format</code>、<code>diskpart</code>、<code>mount</code>、<code>tar</code>、<code>zip</code>、<code>python</code>（用 <code>linux</code> 进兼容层另说）、<code>sudo</code> 以外的提权命令。</p>
+<p>原因是内核里没有对应的网络协议栈、压缩库或权限模型。需要的话得先实现，不是改个名字就能用。</p>
+<h2 id="十一-退出码">十一、退出码</h2>
+<p>终端命令不返回退出码，也没有 <code>&amp;&amp;</code> / <code>||</code>。失败信息直接打印在下一行，脚本继续执行下一条。</p>
+<footer><a href="wct-compile.html">编译手册</a><a href="terminal.html">终端手册</a><a href="commands.html">命令参考</a><a href="performance.html">运行报告</a><span>仓库 github.com/ETQWFD/wcteos-test</span></footer>
+</main></div></body></html>
