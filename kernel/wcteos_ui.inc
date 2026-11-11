@@ -227,7 +227,7 @@ static void ui_execute(void)
     if (scmp(t, "taskmgr") == 0 || scmp(t, "tisal") == 0) { ui_run = 0; ui_task = 1; return; }
     if (scmp(t, "cfg") == 0) { ui_run = 0; ui_set = 1; return; }
 
-    if (ui_ends(t, ".wct")) {
+    if (ui_ends(t, ".wct") || ui_ends(t, ".cok") || ui_ends(t, ".wxtk")) {
         ui_run = 0; ui_len = 0; ui_input[0] = 0;
         CHAR16 path[160];
         if (t[0] == '\\') ui_to_wide(t, path, 160);

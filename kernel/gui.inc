@@ -1103,6 +1103,8 @@ static void handle_click(void)
                     } else {
                         int elen = (int)wlen(next);
                         if ((elen >= 4 && weq(next + elen - 4, L".wct")) ||
+                            (elen >= 4 && weq(next + elen - 4, L".cok")) ||
+                            (elen >= 5 && weq(next + elen - 5, L".wxtk")) ||
                             (elen >= 4 && weq(next + elen - 4, L".wet")) ||
                             (elen >= 4 && weq(next + elen - 4, L".dwc"))) {
                             wct_ui_open_file(next);

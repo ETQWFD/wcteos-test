@@ -2427,6 +2427,33 @@ static void run_script(const CHAR16 *path)
     --script_depth;
 }
 
+/* 可执行扩展名：.wct / .cok / .wxtk —— 同一 WCT1 容器，仅属性不同 */
+static int is_exec_file(const CHAR16 *name)
+{
+    int n = 0; while (name[n]) ++n;
+    if (n < 4 || name[n-4] != L'.') return 0;
+    CHAR16 e[5];
+    for (int i = 0; i < 4; ++i) {
+        CHAR16 c = name[n-4+i];
+        if (c >= L'A' && c <= L'Z') c = (CHAR16)(c + 32);
+        e[i] = c;
+    }
+    e[4] = 0;
+    if (weq(e, L".wct")) return 1;
+    if (weq(e, L".cok")) return 1;
+    if (n >= 5 && name[n-5] == L'.') {
+        CHAR16 x[6];
+        for (int i = 0; i < 5; ++i) {
+            CHAR16 c = name[n-5+i];
+            if (c >= L'A' && c <= L'Z') c = (CHAR16)(c + 32);
+            x[i] = c;
+        }
+        x[5] = 0;
+        if (weq(x, L".wxtk")) return 1;
+    }
+    return 0;
+}
+
 static void cmd_run(CHAR16 *args)
 {
     if (!args[0]) {
@@ -2434,8 +2461,7 @@ static void cmd_run(CHAR16 *args)
         return;
     }
     int n = 0; while (args[n]) ++n;
-    if (n > 4 && args[n-4] == L'.' && (args[n-3] == L'w' || args[n-3] == L'W') &&
-        (args[n-2] == L'c' || args[n-2] == L'C') && (args[n-1] == L't' || args[n-1] == L'T')) {
+    if (is_exec_file(args)) {
         CHAR16 path[256];
         path_for(path, sizeof(path) / sizeof(path[0]), args);
         wct_run_file(BOOT_ROOT ? BOOT_ROOT : ROOT, path);
@@ -3078,6 +3104,7 @@ static void cmd_api(CHAR16 *args)
 
 /* ---- wcteos 桌面外壳：开始菜单 / 运行框 / 设置 / 任务管理器 / 关于 / 锁屏 ---- */
 #include "wcteos_ui.inc"
+#include "oobe.inc"
 
 static void print_banner(void)
 {
@@ -3347,6 +3374,19 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st)
         if (open_path(L"\\wct\\autogui", &auto_gui, EFI_FILE_MODE_READ, 0)) {
             auto_gui->Close(auto_gui);
             cmd_gui();
+        }
+    }
+
+    /* 首次开机：没有 \wct\oobe.cfg 时先走设置向导，完成后进桌面 */
+    {
+        EFI_FILE_PROTOCOL *oc = NULL;
+        if (!open_path(L"\\wct\\oobe.cfg", &oc, EFI_FILE_MODE_READ, 0)) {
+            if (oobe_run()) {
+                ST->ConOut->ClearScreen(ST->ConOut);
+                cmd_gui();
+            }
+        } else {
+            oc->Close(oc);
         }
     }
 
