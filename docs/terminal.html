@@ -1,0 +1,25 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>终端使用手册 - wcteos 测试版</title><link rel="stylesheet" href="_doc.css"></head><body><div class="wrap">
+<h1>终端使用手册</h1>
+<p>终端是内核内自研的命令解释器，命令自己实现，不调用 Linux。提示符 <code>tty2&gt;</code> 紧跟输出，不钉在窗口底部。</p>
+<h2>文件</h2>
+<table><tr><th>命令</th><th>说明</th></tr>
+<tr><td>ls / dir</td><td>列当前目录</td></tr><tr><td>cd PATH</td><td>切换目录</td></tr>
+<tr><td>cat / type FILE</td><td>显示文件内容</td></tr><tr><td>mkdir / md DIR</td><td>建目录</td></tr>
+<tr><td>rm / del FILE</td><td>删除；系统文件会拒绝</td></tr><tr><td>cp A B</td><td>复制</td></tr>
+<tr><td>ren A B</td><td>重命名，可只改后缀（复制后删源）</td></tr>
+<tr><td>attrib FILE</td><td>名称/字节数/目录/只读/隐藏/系统位</td></tr>
+<tr><td>run FILE.wct</td><td>执行模块，支持 WCTX 打包版</td></tr></table>
+<h2>网络</h2>
+<table><tr><th>命令</th><th>说明</th></tr>
+<tr><td>ipconfig / netstat</td><td>驱动、ip、网关、dhcp/arp/link、rx/tx</td></tr>
+<tr><td>route</td><td>当前网络配置（无路由表）</td></tr>
+<tr><td>ping</td><td>对网关发 4 个 ICMP echo，报应答数与最小 TSC 周期</td></tr></table>
+<h2>系统</h2>
+<table><tr><th>命令</th><th>说明</th></tr>
+<tr><td>ps / taskmgr</td><td>进程表与任务管理器</td></tr><tr><td>sysinfo / wtcer</td><td>系统属性</td></tr>
+<tr><td>date / time</td><td>固件时间</td></tr><tr><td>clear</td><td>清屏</td></tr>
+<tr><td>help</td><td>命令总表</td></tr></table>
+<h2>限制</h2>
+<ul><li>没有管道、通配符、Tab 补全、命令历史。</li><li>没有 DNS 与路由表，<code>ping</code> 只打网关。</li>
+<li>没有权限模型，但文件管理器与 <code>rm</code> 都会拒删 \EFI 与 .dwc/.glf 系统文件。</li></ul>
+<div class="foot"><a href="index.html">返回首页</a></div></div></body></html>
