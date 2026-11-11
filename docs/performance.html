@@ -1,21 +1,45 @@
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>内核运行报告 - wcteos 测试版</title><link rel="stylesheet" href="_doc.css">
-<style>pre{white-space:pre-wrap;word-break:break-all}</style></head><body><div class="wrap">
-<h1>内核运行报告</h1>
-<p>本报告只写实测到的东西，并给出复现命令。没有 KVM 的纯软件模拟环境下，任何“比别的系统快”的说法都不成立，所以这里不下这个结论。</p>
-
-<h2>一、测试环境</h2>
-<table><tr><th>项目</th><th>值</th></tr>
-<tr><td>虚拟化</td><td>QEMU 6.2，<code>-accel tcg</code>，无 /dev/kvm</td></tr>
-<tr><td>内存 / CPU</td><td>384MB，单核</td></tr>
-<tr><td>固件</td><td>OVMF 4MB（CODE + 每次全新的 VARS）</td></tr>
-<tr><td>磁盘</td><td>48MB FAT32 ESP，IDE</td></tr>
-<tr><td>网卡</td><td>e1000（另有 rtl8139 驱动）</td></tr>
-<tr><td>显示</td><td>GOP 1024×768，32 位帧缓冲</td></tr>
-<tr><td>镜像</td><td>wcteos-0.9-test.iso / 同一份 BOOTX64.EFI</td></tr></table>
-
-<h2>二、复现命令</h2>
-<pre>cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>内核运行报告 - wcteos 测试版</title>
+<style>
+:root{--paper:#efe9da;--ink:#2a2724;--accent:#34568a;--line:#cfc7b4;--code:#25282e;--muted:#6f6a60}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.75 "Noto Serif CJK SC","Source Han Serif SC",Georgia,serif}
+.layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:36px;max-width:1180px;margin:0 auto;padding:32px 24px 80px}
+aside{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto}
+.brand{font:600 13px/1.4 system-ui,sans-serif;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:14px}
+nav a{display:block;font:14px/1.5 system-ui,sans-serif;color:var(--ink);text-decoration:none;padding:5px 0 5px 10px;border-left:2px solid transparent}
+nav a:hover{color:var(--accent);border-left-color:var(--accent)}
+.back{font:13px system-ui,sans-serif;color:var(--muted);text-decoration:none;display:inline-block;margin-top:22px}
+main{background:#f7f3e9;border:1px solid var(--line);padding:34px 42px 48px;box-shadow:4px 4px 0 #d8d1bf}
+h1{font-size:30px;line-height:1.3;margin:0 0 20px;padding-bottom:14px;border-bottom:3px double var(--line)}
+h2{font-size:21px;margin:34px 0 10px;color:var(--accent);padding-bottom:6px;border-bottom:1px solid var(--line)}
+h3{font-size:17px;margin:22px 0 8px}
+p{margin:10px 0}
+code{background:#e7e0cf;padding:1px 5px;border-radius:2px;font:13.5px/1.5 "JetBrains Mono",Consolas,monospace}
+pre.code{background:var(--code);color:#e6e8ea;padding:16px 18px;overflow:auto;border-radius:3px;margin:14px 0;font:13.5px/1.7 "JetBrains Mono",Consolas,monospace}
+pre.code code{background:none;padding:0;color:inherit;font-size:inherit}
+table{border-collapse:collapse;width:100%;margin:14px 0;font:14.5px/1.6 system-ui,sans-serif}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#e7e0cf;font-weight:600}
+ul,ol{margin:10px 0 10px 22px}
+.callout{background:#e9e2cf;border-left:4px solid var(--accent);padding:12px 16px;margin:16px 0;font:14.5px/1.7 system-ui,sans-serif}
+footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font:13px system-ui,sans-serif;color:var(--muted)}
+footer a{color:var(--accent);text-decoration:none;margin-right:14px}
+@media(max-width:820px){.layout{grid-template-columns:1fr}aside{position:static;max-height:none}main{padding:24px 18px}}
+</style></head><body><div class="layout">
+<aside><div class="brand">wcteos 测试版 · 文档</div><nav><a href="#一-测试环境">一、测试环境</a>
+<a href="#二-复现命令">二、复现命令</a>
+<a href="#三-启动各阶段">三、启动各阶段</a>
+<a href="#四-rdtsc-原始计数">四、rdtsc 原始计数</a>
+<a href="#五-能确认与不能确认">五、能确认与不能确认</a>
+<a href="#六-已知问题">六、已知问题</a></nav><a class="back" href="../index.html">← 返回首页</a></aside>
+<main><h1 id="内核运行报告">内核运行报告</h1>
+<p>只写实测到的东西，并给出复现命令。没有 KVM 的纯软件模拟环境下，任何“比别的系统快”的说法都不成立，所以这里不下这个结论。</p>
+<h2 id="一-测试环境">一、测试环境</h2>
+<table><thead><tr><th>项目</th><th>值</th></tr></thead><tbody><tr><td>虚拟化</td><td>QEMU 6.2，<code>-accel tcg</code>，无 /dev/kvm</td></tr><tr><td>内存 / CPU</td><td>384MB，单核</td></tr><tr><td>固件</td><td>OVMF 4MB（CODE + 每次全新 VARS）</td></tr><tr><td>磁盘</td><td>48MB FAT32 ESP，IDE</td></tr><tr><td>网卡</td><td>e1000（另有 rtl8139 驱动）</td></tr><tr><td>显示</td><td>GOP 1024×768 32 位</td></tr><tr><td>镜像</td><td>wcteos-0.9-test.iso / 同一份 BOOTX64.EFI</td></tr></tbody></table>
+<h2 id="二-复现命令">二、复现命令</h2>
+<pre class="code"><code>cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
 qemu-system-x86_64 -m 384 -smp 1 -display none -no-reboot -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
   -drive if=pflash,format=raw,file=vars.fd \
@@ -23,52 +47,18 @@ qemu-system-x86_64 -m 384 -smp 1 -display none -no-reboot -accel tcg \
   -blockdev driver=raw,file=e,node-name=ed \
   -device ide-hd,drive=ed,bus=ide.0,unit=0 \
   -netdev user,id=n0 -device e1000,netdev=n0 \
-  -serial file:serial.log -monitor none</pre>
-<p>等 40 秒左右读 <code>serial.log</code>。图形截图用 monitor 的 <code>screendump</code>，路径必须是绝对路径。</p>
-
-<h2>三、启动各阶段实测结果</h2>
-<table><tr><th>阶段</th><th>串口/画面证据</th><th>结果</th></tr>
-<tr><td>固件加载 BOOTX64.EFI</td><td>内核横幅 + <code>wcteos Native 1.0</code></td><td>通过</td></tr>
-<tr><td>GOP 初始化</td><td>1024×768 纸片主题桌面</td><td>通过</td></tr>
-<tr><td>PS/2 鼠标</td><td><code>mouse: PS/2 i8042 ready (fallback)</code></td><td>通过</td></tr>
-<tr><td>e1000 + DHCP</td><td><code>net: e1000 52:54:00:12:34:56 ip=10.0.2.15 link:up arp:ok rx:3 tx:3</code></td><td>通过</td></tr>
-<tr><td>rtl8139</td><td><code>link:up arp:no rx:2 tx:5</code>（slirp 下连续收包不稳）</td><td>驱动能识别，DHCP/ARP 不稳定，未宣称可用</td></tr>
-<tr><td>音频 HDA</td><td><code>audio: HDA codecs=0 verb:no-response</code></td><td>无 codec 应答，未通过</td></tr>
-<tr><td>.wct 模块（WCT1）</td><td><code>[wct] loading module ... module returned 0</code></td><td>通过</td></tr>
-<tr><td>.wct 模块（WCTX 打包）</td><td>同上，且先解包再校验 CRC</td><td>通过</td></tr>
-<tr><td>文件属性 / 删除</td><td><code>attrib</code> 显示 16440 字节；系统文件拒删</td><td>通过</td></tr>
-<tr><td>网络命令</td><td><code>ipconfig</code> 输出 ip/gw/dhcp/arp/link；<code>ping</code> 4/4 应答</td><td>通过</td></tr></table>
-
-<h2>四、rdtsc 原始计数（不作性能结论）</h2>
-<pre>同一次运行的 bench 行：
-copy=3,958,994 cyc/MB   fill=648,771 cyc/MB
-
-另一次、同一镜像：
-copy=10,495,550 cyc/MB  fill=7,267,399 cyc/MB</pre>
-<p>两次差 3 倍以上。原因是 TCG 把每条指令翻译成宿主指令，宿主进程被调度走、缓存被挤占都会让计数剧烈波动。因此：</p>
-<ul>
-<li>不能把 cyc/MB 换算成 MB/s；</li>
-<li>不能用这些数反推 CPU 主频；</li>
-<li>不能用它证明“比普通系统快”。</li>
-</ul>
-
-<h2>五、能确认与不能确认</h2>
-<table><tr><th>能确认</th><th>不能确认</th></tr>
-<tr><td>内核能在 OVMF 下启动进桌面</td><td>真机上的启动耗时</td></tr>
-<tr><td>鼠标、键盘、GOP 图形可用</td><td>与 Windows/Linux 的速度对比</td></tr>
-<tr><td>e1000 下 DHCP 与 ARP 可用</td><td>rtl8139 在真实网络下的稳定性</td></tr>
-<tr><td>.wct / WCTX 模块能加载执行</td><td>音频输出是否可用</td></tr>
-<tr><td>文件读写、属性、删除保护可用</td><td>.wcte 与 WIM 的压缩速度对比</td></tr></table>
-<p>要做速度对比，必须在同一台真机、同一块盘、同一份测试程序上跑两组镜像，并给出多次采样的中位数。当前环境不具备这个条件，所以报告到此为止。</p>
-
-<h2>六、已知问题清单</h2>
-<ul>
-<li>ISO 的 El Torito 在部分沙箱 OVMF 里被跳过，会落到内置 shell；U 盘镜像可直接启动。</li>
-<li>HDA 音频无 codec 应答，没有可验证的声音输出。</li>
-<li>无线网卡没有驱动。</li>
-<li>安装程序尚未实现“写入硬盘 + 注册 UEFI 启动项 + 自动重启”的完整流程。</li>
-<li>没有 KVM，性能结论一律不成立。</li>
-</ul>
-
-<div class="foot"><a href="index.html">返回首页</a> · <a href="wct-compile.html">.wct 编译手册</a> · <a href="terminal.html">终端使用手册</a></div>
-</div></body></html>
+  -serial file:serial.log -monitor none</code></pre>
+<p>等 40 秒左右读 <code>serial.log</code>；截图用 monitor 的 <code>screendump</code>，路径必须是绝对路径。</p>
+<h2 id="三-启动各阶段">三、启动各阶段</h2>
+<table><thead><tr><th>阶段</th><th>证据</th><th>结果</th></tr></thead><tbody><tr><td>固件加载 BOOTX64.EFI</td><td>内核横幅</td><td>通过</td></tr><tr><td>GOP 初始化</td><td>1024×768 纸片桌面</td><td>通过</td></tr><tr><td>PS/2 鼠标</td><td><code>mouse: PS/2 i8042 ready (fallback)</code></td><td>通过</td></tr><tr><td>e1000 + DHCP</td><td><code>net: e1000 52:54:00:12:34:56 ip=10.0.2.15 link:up arp:ok rx:3 tx:3</code></td><td>通过</td></tr><tr><td>rtl8139</td><td><code>link:up arp:no rx:2 tx:5</code></td><td>能识别，DHCP/ARP 不稳，未宣称可用</td></tr><tr><td>HDA 音频</td><td><code>audio: HDA codecs=0 verb:no-response</code></td><td>无 codec 应答，未通过</td></tr><tr><td>.wct（WCT1）</td><td><code>[wct] loading module ... returned 0</code></td><td>通过</td></tr><tr><td>.wct（WCTX）</td><td>先解包再校验 CRC，返回 0</td><td>通过</td></tr><tr><td>文件属性 / 删除</td><td><code>attrib</code> 显示 16440 字节，系统文件拒删</td><td>通过</td></tr><tr><td>网络命令</td><td><code>ipconfig</code> 完整输出；<code>ping</code> 4/4</td><td>通过</td></tr></tbody></table>
+<h2 id="四-rdtsc-原始计数">四、rdtsc 原始计数</h2>
+<pre class="code"><code>copy=3,958,994 cyc/MB   fill=648,771 cyc/MB
+copy=10,495,550 cyc/MB  fill=7,267,399 cyc/MB   （同一镜像另一次）</code></pre>
+<p>两次差 3 倍以上，原因是 TCG 逐条翻译指令，宿主调度与缓存都会影响计数。因此不能换算 MB/s、不能反推主频、不能证明“更快”。</p>
+<h2 id="五-能确认与不能确认">五、能确认与不能确认</h2>
+<table><thead><tr><th>能确认</th><th>不能确认</th></tr></thead><tbody><tr><td>OVMF 下能进桌面</td><td>真机启动耗时</td></tr><tr><td>鼠标键盘 GOP 可用</td><td>与 Windows/Linux 的速度对比</td></tr><tr><td>e1000 DHCP 与 ARP 可用</td><td>rtl8139 在真实网络的稳定性</td></tr><tr><td>.wct / WCTX 能加载执行</td><td>音频输出可用</td></tr><tr><td>文件读写、属性、删除保护可用</td><td>.wcte 与 WIM 压缩速度对比</td></tr></tbody></table>
+<p>要做速度对比，必须在同一台真机、同一块盘、同一份测试程序上跑两组镜像，取多次采样中位数。当前环境不具备条件。</p>
+<h2 id="六-已知问题">六、已知问题</h2>
+<ul><li>ISO El Torito 在部分沙箱 OVMF 里被跳过，会落到内置 shell；U 盘镜像可直接启动</li><li>HDA 音频无 codec 应答</li><li>无线网卡没有驱动</li><li>安装程序尚未实现“写硬盘 + 注册 UEFI 启动项 + 自动重启”</li><li>没有 KVM，性能结论不成立</li></ul>
+<footer><a href="wct-compile.html">编译手册</a><a href="terminal.html">终端手册</a><a href="performance.html">运行报告</a><span>仓库 github.com/ETQWFD/wcteos-test</span></footer>
+</main></div></body></html>
