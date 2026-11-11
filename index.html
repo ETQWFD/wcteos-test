@@ -1,0 +1,78 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wcteos 测试版</title>
+<style>
+:root{--bg:#f2eee3;--ink:#2a2724;--sub:#6d675c;--accent:#34568a;--line:#d3cbb8;--panel:#faf7ee}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.75 "Noto Sans CJK SC",system-ui,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:56px 24px 80px}
+header{border-bottom:3px double var(--line);padding-bottom:22px;margin-bottom:34px}
+h1{margin:0;font-size:34px;letter-spacing:.02em}
+.tag{color:var(--sub);font-size:14px;margin-top:8px}
+h2{font-size:21px;margin:42px 0 14px;color:var(--accent)}
+h3{font-size:16px;margin:20px 0 6px}
+p{margin:10px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);padding:18px 20px}
+.card h3{margin-top:0}
+code{background:#e7e0cf;padding:1px 5px;font:13.5px/1.5 Consolas,monospace}
+pre{background:#25282e;color:#e6e8ea;padding:14px 16px;overflow:auto;font:13.5px/1.7 Consolas,monospace}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left}
+th{background:#e7e0cf}
+a{color:var(--accent)}
+.notice{background:#e9e2cf;border-left:4px solid var(--accent);padding:12px 16px;margin:18px 0;font-size:14.5px}
+footer{margin-top:56px;border-top:1px solid var(--line);padding-top:18px;color:var(--sub);font-size:13.5px;line-height:1.9}
+.shot{width:100%;border:1px solid var(--line);background:#fff}
+</style></head><body><div class="wrap">
+
+<header>
+<h1>wcteos 测试版</h1>
+<div class="tag">UEFI 系统实验版本 · 0.9-test · x86_64 / ia32 · aqtwWCT95 与 ETQWFD 共同开发</div>
+</header>
+
+<div class="notice"><b>来源与许可</b>：本项目由 <b>aqtwWCT95</b> 与 <b>ETQWFD</b> 共同开发；内核基础来自 <a href="https://github.com/ETQWFD/wct-kernel">wct-kernel</a>。遵循 MIT 许可证，两位开发者的版权声明均完整保留。完整许可见 <a href="license.html">版权与许可</a>。</div>
+
+<h2>它是什么</h2>
+<p>一个直接由 UEFI 固件加载的实验性系统镜像：开机进图形桌面，带文件管理器、终端、文本编辑器、任务管理器与设置，能读写 FAT32、加载网卡驱动、执行 <code>.wct</code> 模块。代码为 C，编译成单个 EFI 可执行文件，运行时不经过 Linux 内核。</p>
+<p>它目前是测试版本，不是完整桌面操作系统：没有软件生态、没有安装到硬盘的完整流程、没有音频输出验证，性能数据也不具备与其他系统对比的条件。</p>
+
+<h2>下载</h2>
+<table>
+<tr><th>文件</th><th>说明</th></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test/releases/download/v0.9-test/wcteos-0.9-test.iso">wcteos-0.9-test.iso</a></td><td>光盘镜像，可刻盘或挂虚拟机光驱</td></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test/releases/download/v0.9-test/wcteos-0.9-test-usb.img">wcteos-0.9-test-usb.img</a></td><td>48MB FAT32 镜像，dd 到 U 盘即可启动</td></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test">源码仓库</a></td><td>内核、桌面外壳、模块工具与构建脚本</td></tr>
+</table>
+
+<h2>界面</h2>
+<img class="shot" src="docs/assets/desktop.png" alt="桌面截图">
+<p>纸片风格桌面：图标列、任务栏、托盘时钟与网络状态；双击图标打开窗口，任务栏右键打开任务管理器，桌面右键可刷新、新建文件夹或文本文档。</p>
+
+<h2>现在能做的事</h2>
+<div class="grid">
+<div class="card"><h3>文件</h3><p>浏览 FAT32 目录，查看文件属性（大小、类型、属性位），删除普通文件；引导文件与 <code>.dwc</code>、<code>.glf</code> 受保护，拒绝删除。</p></div>
+<div class="card"><h3>终端</h3><p>文件、网络、系统三类命令；提示符紧跟输出。支持 <code>attrib</code>、<code>ipconfig</code>、<code>ping</code>、<code>run</code> 等。</p></div>
+<div class="card"><h3>模块</h3><p><code>.wct</code> 模块可双击或在终端 <code>run</code>；支持 WCTX 混淆容器，加载前校验 CRC32。</p></div>
+<div class="card"><h3>网络</h3><p>e1000 与 rtl8139 驱动，DHCP 取址、ARP 解析网关；rtl8139 在模拟网络下不稳定，未宣称可用。</p></div>
+<div class="card"><h3>桌面</h3><p>主题与壁纸切换（含 <code>.glf</code> 动态壁纸）、运行框、任务管理器、锁屏。</p></div>
+<div class="card"><h3>构建</h3><p>单个 EFI 可执行，mingw-w64 交叉编译，xorriso 打 ISO，mtools 写 ESP。</p></div>
+</div>
+
+<h2>文档</h2>
+<table>
+<tr><th>文档</th><th>内容</th></tr>
+<tr><td><a href="docs/wct-compile.html">.wct 编译手册</a></td><td>从装工具链到打包运行，含完整命令与常见错误</td></tr>
+<tr><td><a href="docs/terminal.html">终端使用手册</a></td><td>全部命令、示例与限制</td></tr>
+<tr><td><a href="docs/performance.html">内核运行报告</a></td><td>测试环境、复现命令、实测结果与不能确认的部分</td></tr>
+</table>
+
+<h2>许可</h2>
+<p>MIT。项目保留 <b>aqtwWCT95</b> 与 <b>ETQWFD</b> 两位开发者的版权声明；再分发时请一并保留。详见 <a href="license.html">版权与许可</a>。</p>
+
+<footer>
+wcteos 测试版 · 基于 <a href="https://github.com/ETQWFD/wct-kernel">wct-kernel</a> 开发<br>
+Copyright (c) 2026 aqtwWCT95 · Copyright (c) 2026 ETQWFD · MIT License<br>
+仓库：<a href="https://github.com/ETQWFD/wcteos-test">github.com/ETQWFD/wcteos-test</a>
+</footer>
+</div></body></html>
