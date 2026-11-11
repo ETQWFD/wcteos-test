@@ -28,40 +28,179 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font:13
 footer a{color:var(--accent);text-decoration:none;margin-right:14px}
 @media(max-width:820px){.layout{grid-template-columns:1fr}aside{position:static;max-height:none}main{padding:24px 18px}}
 </style></head><body><div class="layout">
-<aside><div class="brand">wcteos 测试版 · 文档</div><nav><a href="#一-打开方式">一、打开方式</a>
-<a href="#二-输入与快捷键">二、输入与快捷键</a>
-<a href="#三-文件命令">三、文件命令</a>
-<a href="#四-网络命令">四、网络命令</a>
-<a href="#五-系统命令">五、系统命令</a>
-<a href="#六-脚本与自动执行">六、脚本与自动执行</a>
-<a href="#七-限制">七、限制</a></nav><a class="back" href="../index.html">← 返回首页</a></aside>
+<aside><div class="brand">wcteos 测试版 · 文档</div><nav><a href="#一-打开终端">一、打开终端</a>
+<a href="#二-键盘操作">二、键盘操作</a>
+<a href="#三-路径规则">三、路径规则</a>
+<a href="#四-文件与目录">四、文件与目录</a>
+<a href="#五-运行程序">五、运行程序</a>
+<a href="#六-网络">六、网络</a>
+<a href="#七-系统信息">七、系统信息</a>
+<a href="#八-进程">八、进程</a>
+<a href="#九-外观">九、外观</a>
+<a href="#十-日志">十、日志</a>
+<a href="#十一-电源与模式">十一、电源与模式</a>
+<a href="#十二-包与-api">十二、包与 API</a>
+<a href="#十三-卷与-u-盘">十三、卷与 U 盘</a>
+<a href="#十四-常见错误">十四、常见错误</a>
+<a href="#十五-和-windows-linux-终端的差别">十五、和 Windows / Linux 终端的差别</a></nav><a class="back" href="../index.html">← 返回首页</a></aside>
 <main><h1 id="终端使用手册">终端使用手册</h1>
-<p>wcteos 的终端是内核自己实现的命令解释器，所有命令走内核 API，不调用 Linux，也不依赖外部程序。窗口正文是深色背景，提示符 <code>tty2&gt;</code> 紧跟最后一行输出，不会钉在窗口底部。</p>
-<h2 id="一-打开方式">一、打开方式</h2>
-<ul><li>桌面双击「终端」图标</li><li>开始菜单选「终端」</li><li>任意界面按 <code>F1</code> 打开开始菜单</li><li>运行框输入 <code>wtr</code> 回车</li></ul>
-<h2 id="二-输入与快捷键">二、输入与快捷键</h2>
-<table><thead><tr><th>操作</th><th>行为</th></tr></thead><tbody><tr><td>直接打字</td><td>输入到当前命令行，只接受可见 ASCII</td></tr><tr><td><code>Enter</code></td><td>执行并回显</td></tr><tr><td><code>Backspace</code></td><td>删一个字符</td></tr><tr><td><code>↑</code> / <code>PageUp</code></td><td>向上滚动</td></tr><tr><td><code>↓</code> / <code>PageDown</code></td><td>向下滚动</td></tr><tr><td><code>Esc</code></td><td>关闭终端窗口</td></tr></tbody></table>
-<h2 id="三-文件命令">三、文件命令</h2>
-<table><thead><tr><th>命令</th><th>作用</th><th>示例</th></tr></thead><tbody><tr><td><code>ls [路径]</code></td><td>列目录</td><td><code>ls \wct</code></td></tr><tr><td><code>cd [目录]</code></td><td>切换目录</td><td><code>cd \wct\wall</code></td></tr><tr><td><code>pwd</code></td><td>显示当前目录</td><td><code>pwd</code></td></tr><tr><td><code>cat</code> / <code>type</code></td><td>显示文本</td><td><code>cat \wct\note.txt</code></td></tr><tr><td><code>new</code> / <code>touch</code></td><td>新建空文件</td><td><code>new \wct\a.txt</code></td></tr><tr><td><code>write 文件 文本</code></td><td>覆盖写入一行</td><td><code>write \wct\a.txt hello</code></td></tr><tr><td><code>edit 文件</code></td><td>图形编辑器打开</td><td><code>edit \wct\a.txt</code></td></tr><tr><td><code>mkdir</code> / <code>md</code></td><td>建目录</td><td><code>mkdir \wct\test</code></td></tr><tr><td><code>rm</code> / <code>del</code></td><td>删文件</td><td><code>del \wct\a.txt</code></td></tr><tr><td><code>rd</code></td><td>删空目录</td><td><code>rd \wct\test</code></td></tr><tr><td><code>cp 源 目标</code></td><td>复制</td><td><code>cp \wct\a.txt \wct\b.txt</code></td></tr><tr><td><code>ren 源 新名</code> / <code>rename</code></td><td>重命名，可只改后缀</td><td><code>ren \wct\A.WCT \wct\B.WCT</code></td></tr><tr><td><code>attrib 文件</code></td><td>名称、字节数、属性位</td><td><code>attrib \wct\HELLO.WCT</code></td></tr><tr><td><code>run 文件.wct</code></td><td>执行模块，支持 WCTX</td><td><code>run \wct\HELLO.WCT</code></td></tr><tr><td><code>script 文件</code></td><td>逐行执行 .wet</td><td><code>script \wct\boot.wet</code></td></tr></tbody></table>
-<p>受保护路径：<code>\EFI</code> 下的引导文件、<code>.dwc</code> 依赖声明、<code>.glf</code> 壁纸。删除会被拒，这是设计，不是 bug。</p>
-<pre class="code"><code>tty2&gt; attrib \wct\HELLO.WCT
-  名称：HELLO.WCT
-  大小：16440 字节
-  属性：文件</code></pre>
-<h2 id="四-网络命令">四、网络命令</h2>
-<table><thead><tr><th>命令</th><th>作用</th></tr></thead><tbody><tr><td><code>ipconfig</code></td><td>驱动、IP、网关、dhcp/arp/link</td></tr><tr><td><code>netstat</code></td><td>同 ipconfig，并附 rx/tx 计数</td></tr><tr><td><code>route</code></td><td>打印当前网络配置（无路由表）</td></tr><tr><td><code>ping</code></td><td>对网关发 4 个 ICMP echo</td></tr></tbody></table>
-<pre class="code"><code>tty2&gt; ipconfig
-e1000 ip=10.0.2.15 gw=10.0.2.2 dhcp=ok arp=ok link=up
-rx=3 tx=3</code></pre>
-<p>没有 DNS、没有路由表，<code>ping</code> 只能打网关；TCG 下的周期数受宿主调度影响，只作功能验证。</p>
-<h2 id="五-系统命令">五、系统命令</h2>
-<table><thead><tr><th>命令</th><th>作用</th></tr></thead><tbody><tr><td><code>ps</code></td><td>内核进程表</td></tr><tr><td><code>pid</code></td><td>当前进程号</td></tr><tr><td><code>kill PID</code></td><td>结束进程，pid 1 受保护</td></tr><tr><td><code>taskmgr</code></td><td>图形任务管理器</td></tr><tr><td><code>sysinfo</code> / <code>about</code> / <code>wtcer</code></td><td>系统名称、版本、装机时间</td></tr><tr><td><code>date</code> / <code>hw</code></td><td>固件日期时间</td></tr><tr><td><code>mem</code></td><td>内存统计</td></tr><tr><td><code>log</code></td><td>启动日志缓冲</td></tr><tr><td><code>theme</code> / <code>color</code> / <code>font</code></td><td>主题、配色、字号</td></tr><tr><td><code>gui</code> / <code>exitgui</code></td><td>进图形 / 回文本</td></tr><tr><td><code>reboot</code> / <code>poweroff</code></td><td>重启 / 关机</td></tr><tr><td><code>clear</code></td><td>清屏</td></tr><tr><td><code>ver</code> / <code>native</code> / <code>linux</code></td><td>版本 / 原生说明 / 兼容层状态</td></tr><tr><td><code>usb</code> / <code>api</code> / <code>pkg</code> / <code>sudo</code></td><td>USB 状态 / 模块 API / 包管理占位 / 管理员标记</td></tr><tr><td><code>help</code></td><td>命令总表</td></tr></tbody></table>
-<h2 id="六-脚本与自动执行">六、脚本与自动执行</h2>
-<p><code>.wet</code> 相当于批处理，每行一条命令。启动时若存在 <code>\wct\autorun</code>，内核会逐行执行，常用于无人值守测试。</p>
+<p>wcteos 的终端是内核自己实现的命令解释器，所有命令走内核 API，不调用 Linux，也不依赖外部程序。窗口正文是深色背景，提示符紧跟最后一行输出，不会钉在窗口底部——和 Linux 终端一样，输入行永远在内容下方。</p>
+<h2 id="一-打开终端">一、打开终端</h2>
+<p>三种入口：</p>
+<ol><li>桌面双击「终端」图标；</li><li>任务栏点终端按钮；</li><li>桌面运行框输入 <code>wtr</code> 回车。</li></ol>
+<p>提示符格式为 <code>tty2&gt;</code> 或当前目录，例如 <code>\wct&gt;</code>。</p>
+<h2 id="二-键盘操作">二、键盘操作</h2>
+<table><thead><tr><th>按键</th><th>作用</th></tr></thead><tbody><tr><td>字符键</td><td>插入到输入行光标处，只接受可见 ASCII</td></tr><tr><td><code>Enter</code></td><td>执行当前行并回显</td></tr><tr><td><code>Backspace</code></td><td>删除光标前一个字符</td></tr><tr><td><code>↑</code> / <code>PageUp</code></td><td>向上滚动历史输出</td></tr><tr><td><code>↓</code> / <code>PageDown</code></td><td>向下滚动</td></tr><tr><td><code>Esc</code></td><td>关闭终端窗口</td></tr><tr><td><code>Ctrl+L</code> 或 <code>clear</code></td><td>清屏并重画标题</td></tr></tbody></table>
+<p>不支持 <code>Tab</code> 补全，不支持 <code>Ctrl+C</code> 中断。长命令请一次输完。</p>
+<h2 id="三-路径规则">三、路径规则</h2>
+<ul><li>根目录是 <code>\</code>，代表启动分区（ESP）根。</li><li>分隔符是反斜杠。多数命令里 <code>/</code> 也能识别，但建议统一用 <code>\</code>。</li><li>相对路径从“当前目录”算：<code>cd \wct</code> 之后，<code>ls</code> 看的是 <code>\wct</code>。</li><li>卷用 <code>usb</code> 命令切换：<code>usb 1</code> 进第二个卷，<code>usb boot</code> 回启动卷。</li><li>FAT32 限制：单文件最大 4GB，文件名最长 255 字符，不支持 <code>:</code> <code>*</code> <code>?</code> 等字符。</li></ul>
+<h2 id="四-文件与目录">四、文件与目录</h2>
+<h3 id="看目录">看目录</h3>
+<pre class="code"><code>ls
+ls \wct
+ls \wct\wall</code></pre>
+<p>输出每个条目的名字、大小、目录标记。空目录打印 <code>(empty)</code>。</p>
+<h3 id="进目录-看当前路径">进目录 / 看当前路径</h3>
+<pre class="code"><code>cd \wct
+cd ..
+pwd</code></pre>
+<p><code>cd</code> 不带参数回到根目录 <code>\</code>；<code>cd ..</code> 回上级，已在根目录时停在根目录。</p>
+<h3 id="看文本文件">看文本文件</h3>
+<pre class="code"><code>cat \wct\autorun
+type \wct\autorun</code></pre>
+<p><code>type</code> 是 <code>cat</code> 的别名。超过一屏的内容连续输出，用滚动键回看。</p>
+<h3 id="新建文件">新建文件</h3>
+<pre class="code"><code>new \wct\note.txt
+touch \wct\note.txt
+create \wct\note.txt</code></pre>
+<p>三个名字是同一条命令。文件已存在时不会清空内容。</p>
+<h3 id="写文件">写文件</h3>
+<pre class="code"><code>write \wct\note.txt hello world</code></pre>
+<p>整行覆盖写入，不支持追加。要改内容用 <code>edit</code>。</p>
+<h3 id="编辑文件">编辑文件</h3>
+<pre class="code"><code>edit \wct\note.txt</code></pre>
+<p>进入行编辑模式：</p>
+<table><thead><tr><th>按键</th><th>作用</th></tr></thead><tbody><tr><td>直接输入</td><td>追加到当前行</td></tr><tr><td><code>Enter</code></td><td>提交当前行，开始下一行</td></tr><tr><td><code>Ctrl+S</code></td><td>保存并退出</td></tr><tr><td><code>Esc</code></td><td>放弃修改退出</td></tr></tbody></table>
+<p>文件不存在时会先创建。保存时按当前编码写回。</p>
+<h3 id="复制">复制</h3>
+<pre class="code"><code>cp \wct\hello.wct \wct\hello2.wct
+cp hello.wct \wct\backup\hello.wct</code></pre>
+<p>目标已存在会被覆盖。不支持递归复制目录。</p>
+<h3 id="改名">改名</h3>
+<pre class="code"><code>ren \wct\HI.WCT \wct\HI2.WCT
+rename \wct\a.txt \wct\a.bak
+ren \wct\hello.wct \wct\hello.cok</code></pre>
+<p>可以只改后缀。实现方式是“读源文件 → 写目标 → 删源”，不是原子重命名；空间不足时保留源文件并报错。</p>
+<h3 id="删除">删除</h3>
+<pre class="code"><code>rm \wct\hello.wct
+del \wct\hello.wct
+rd \wct\hello.wct</code></pre>
+<p>三个名字是同一条命令。受保护文件会拒绝删除并打印原因。</p>
+<h3 id="建目录">建目录</h3>
+<pre class="code"><code>mkdir \wct\backup
+md \wct\backup</code></pre>
+<h3 id="看属性">看属性</h3>
+<pre class="code"><code>attrib \wct\hello.wct</code></pre>
+<p>输出示例：</p>
+<pre class="code"><code>file: \wct\hello.wct
+  size: 16428 bytes
+  attributes: 0x20
+  type: .wct executable</code></pre>
+<p>属性位含义：</p>
+<table><thead><tr><th>位</th><th>含义</th></tr></thead><tbody><tr><td><code>0x01</code></td><td>只读</td></tr><tr><td><code>0x02</code></td><td>隐藏</td></tr><tr><td><code>0x04</code></td><td>系统</td></tr><tr><td><code>0x10</code></td><td>目录</td></tr><tr><td><code>0x20</code></td><td>归档（普通文件）</td></tr></tbody></table>
+<p>图形界面里选中文件点底部「属性」按钮，看到的是同一组信息；「复制」「粘贴」按钮用于同目录或跨目录复制文件。</p>
+<h2 id="五-运行程序">五、运行程序</h2>
+<h3 id="运行模块">运行模块</h3>
+<pre class="code"><code>run \wct\hello.wct
+run hello.wct
+run \wct\hello.cok
+run \wct\hello.wxtk</code></pre>
+<p><code>.wct</code> / <code>.cok</code> / <code>.wxtk</code> 都按 WCT1 容器加载，校验通过才执行；失败会打印具体原因（magic、CRC、分配地址失败等）。</p>
+<h3 id="运行脚本">运行脚本</h3>
+<pre class="code"><code>run \wct\autorun
+script \wct\autorun</code></pre>
+<p>不带可执行后缀的文件按文本脚本处理：逐行读取，跳过空行和 <code>#</code> 注释，依次执行。</p>
+<h3 id="直接双击">直接双击</h3>
+<p>文件管理器里双击 <code>.wct</code> / <code>.cok</code> / <code>.wxtk</code> 等同于 <code>run</code>；双击 <code>.txt</code> 打开编辑器；双击 <code>.dwc</code> 设为壁纸。</p>
+<h2 id="六-网络">六、网络</h2>
+<h3 id="看状态">看状态</h3>
 <pre class="code"><code>ipconfig
-attrib \wct\HELLO.WCT
-run \wct\HELLO.WCT</code></pre>
-<h2 id="七-限制">七、限制</h2>
-<ul><li>无管道、重定向、通配符、Tab 补全、命令历史</li><li>无 DNS、无路由表，<code>ping</code> 仅网关</li><li>没有真正的权限模型，“管理员”只是运行框里的标记</li><li>不能执行 Linux 程序，也没有 Linux 兼容层</li></ul>
-<footer><a href="wct-compile.html">编译手册</a><a href="terminal.html">终端手册</a><a href="performance.html">运行报告</a><span>仓库 github.com/ETQWFD/wcteos-test</span></footer>
+netstat
+route</code></pre>
+<p>三个命令输出同一份网络状态，包含网卡型号、链路状态、IP、网关、DHCP 是否成功、ARP 是否解析到网关、收发包计数。</p>
+<p>正常输出：</p>
+<pre class="code"><code>nic: e1000
+ip=10.0.2.15 gw=10.0.2.2 dhcp=ok arp=ok rx:3 tx:3</code></pre>
+<p><code>arp=no</code> 说明网关 MAC 没拿到，此时 <code>ping</code> 一定失败。</p>
+<h3 id="ping-网关">ping 网关</h3>
+<pre class="code"><code>ping</code></pre>
+<p>只支持 ping 网关，四次 ICMP，打印每次往返的 TSC 周期与最小值。没有 DNS、没有路由表，不能 ping 外网地址。</p>
+<p>失败提示：</p>
+<ul><li><code>ping: 网络未就绪或没有网关</code>：网卡没起来或 DHCP 没拿到地址；</li><li><code>ping: 4 次请求无应答</code>：ARP 没通，检查网关。</li></ul>
+<h3 id="已知限制">已知限制</h3>
+<ul><li>e1000 在 QEMU slirp 下实测可用；</li><li>rtl8139 能识别、能初始化，但模拟网络下 DHCP/ARP 不稳定，不保证可用；</li><li>没有无线驱动，扫不到 WiFi；</li><li>没有 DNS 解析，没有 HTTP 客户端。</li></ul>
+<h2 id="七-系统信息">七、系统信息</h2>
+<pre class="code"><code>ver
+about
+hw
+sysinfo
+date
+mem
+mem free</code></pre>
+<ul><li><code>ver</code>：内核版本、架构、兼容层信息；</li><li><code>about</code>：作者与版本；</li><li><code>hw</code> / <code>sysinfo</code>：CPU 厂商、型号、内存大小、固件信息、显卡模式；</li><li><code>date</code>：UEFI 固件时钟（不是网络时间）；</li><li><code>mem</code>：显示内存占用；<code>mem free</code> 释放测试占用。</li></ul>
+<h2 id="八-进程">八、进程</h2>
+<pre class="code"><code>ps
+pid
+kill 3
+sudo kill 3</code></pre>
+<ul><li><code>ps</code>：列出进程号、名字、状态、父进程；</li><li><code>pid</code>：显示当前 shell 的进程号；</li><li><code>kill PID</code>：结束普通进程；</li><li><code>sudo kill PID</code>：结束受保护进程（内核进程、init 等），需要确认。</li></ul>
+<p>受保护进程普通 <code>kill</code> 会返回拒绝，必须用 <code>sudo</code>。</p>
+<h2 id="九-外观">九、外观</h2>
+<pre class="code"><code>theme
+theme matrix
+theme amber
+theme ice
+theme ubuntu
+theme wct
+color green
+color reset
+font next
+font 2
+banner</code></pre>
+<ul><li><code>theme</code> 不带参数列出 5 套配色：<code>ubuntu</code> <code>wct</code> <code>matrix</code> <code>amber</code> <code>ice</code>；</li><li><code>color</code> 改终端文字颜色，<code>reset</code> 恢复默认；</li><li><code>font</code> 切换控制台字体/模式；</li><li><code>banner</code> 重画顶部标题。</li></ul>
+<p>图形界面对应入口是「设置」→ 主题 / 壁纸。</p>
+<h2 id="十-日志">十、日志</h2>
+<pre class="code"><code>log
+log save
+log clear
+log 3 something happened</code></pre>
+<p><code>log</code> 查看启动与命令日志；<code>save</code> 写回磁盘；<code>clear</code> 清空；<code>log LEVEL TEXT</code> 手动追加一条，LEVEL 是 0-3 的数字。</p>
+<h2 id="十一-电源与模式">十一、电源与模式</h2>
+<pre class="code"><code>poweroff
+reboot
+gui
+exitgui
+tty
+linux
+native</code></pre>
+<ul><li><code>poweroff</code>：关机；</li><li><code>reboot</code>：重启；</li><li><code>gui</code>：从终端切回桌面；</li><li><code>exitgui</code>：从桌面退回终端；</li><li><code>tty</code>：显示 tty1/tty2 两个终端实例；</li><li><code>linux</code>：进入内置 Linux 兼容子系统（CPython 3.11.2 演示环境，不是完整 Linux）；</li><li><code>native</code>：显示当前是否以原生模式启动。</li></ul>
+<h2 id="十二-包与-api">十二、包与 API</h2>
+<pre class="code"><code>pkg
+pkg list
+pkg install \wct\tool.wctpkg
+api</code></pre>
+<ul><li><code>pkg</code> 列出已安装的包命令；</li><li><code>pkg install</code> 安装 <code>.wctpkg</code> 包（本质是带命令元数据的模块）；</li><li><code>api</code> 打印内核 API 表版本与可用函数。</li></ul>
+<h2 id="十三-卷与-u-盘">十三、卷与 U 盘</h2>
+<pre class="code"><code>usb
+usb 0
+usb 1
+usb boot
+usb rescan</code></pre>
+<ul><li><code>usb</code> 列出所有 FAT 卷；</li><li><code>usb N</code> 切到第 N 个卷；</li><li><code>usb boot</code> 回启动卷；</li><li><code>usb rescan</code> 重新扫描。</li></ul>
+<p>切换后 <code>pwd</code> 显示新卷路径，<code>ls</code> 看到该卷根目录。</p>
+<h2 id="十四-常见错误">十四、常见错误</h2>
+<table><thead><tr><th>提示</th><th>原因</th><th>处理</th></tr></thead><tbody><tr><td><code>unknown command: xxx</code></td><td>命令拼错，或没装对应包</td><td><code>help</code> 看命令表；<code>pkg</code> 看已装包</td></tr><tr><td><code>not found</code></td><td>路径不对</td><td><code>ls</code> 确认目录；注意反斜杠</td></tr><tr><td><code>access denied</code></td><td>文件只读或受保护</td><td>引导文件、<code>.dwc</code>、<code>.glf</code> 不允许删除</td></tr><tr><td><code>no space</code></td><td>FAT32 剩余空间不足</td><td>删无用文件，或换更大镜像</td></tr><tr><td><code>ping: 网络未就绪</code></td><td>网卡没起来 / 没拿到 IP</td><td>先 <code>ipconfig</code> 看 <code>dhcp=ok</code></td></tr><tr><td><code>run: usage</code></td><td>没给文件名</td><td><code>run \wct\xxx.wct</code></td></tr><tr><td><code>bad magic</code></td><td>不是 WCT1 文件</td><td>重新编译打包，见编译手册</td></tr></tbody></table>
+<h2 id="十五-和-windows-linux-终端的差别">十五、和 Windows / Linux 终端的差别</h2>
+<ul><li>像 Windows：路径用 <code>\</code>，<code>del</code> <code>rd</code> <code>md</code> <code>ren</code> <code>type</code> 这些别名直接可用，盘符用 <code>usb</code> 切换。</li><li>像 Linux：提示符跟着输出走，<code>ls</code> <code>cat</code> <code>cp</code> <code>rm</code> <code>mkdir</code> <code>pwd</code> 这些名字保留，输入行在内容下方而不是固定在底栏。</li><li>不一样：没有管道、没有重定向、没有通配符、没有环境变量、没有后台任务、没有 <code>Tab</code> 补全；参数按空格切分，含空格的路径暂不支持。</li></ul>
+<footer><a href="wct-compile.html">编译手册</a><a href="terminal.html">终端手册</a><a href="commands.html">命令参考</a><a href="performance.html">运行报告</a><span>仓库 github.com/ETQWFD/wcteos-test</span></footer>
 </main></div></body></html>
