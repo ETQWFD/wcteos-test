@@ -75,4 +75,15 @@ entering WCT desktop
 已知未闭环：
 - 从盘（IDE 从设备）的 PIO 数据读取路径在客户机内取到的扇区内容与宿主直读不一致，分区解析会退化成裸盘；
 - PS/2 AUX 初始化在本机 OVMF 上会把机器挂死，默认以 `-DWCT_SKIP_PS2` 跳过（USB HID 指针可用）；
-- 网卡/声卡驱动未实现；32 位仅编译验证（无 32 位 OVMF 固件）。
+- 网卡：e1000 可用（DHCP/ARP 实测通过），rtl8139 能识别但模拟网络下 DHCP/ARP 不稳定；
+- 声卡：HDA 无 codec 应答，没有可验证的音频输出；
+- 32 位仅编译验证（无 32 位 OVMF 固件）。
+
+## 版权与许可
+
+本项目由 **aqtwWCT95** 与 **ETQWFD** 共同开发，内核基础来自 [wct-kernel](https://github.com/ETQWFD/wct-kernel)。
+
+- Copyright (c) 2026 aqtwWCT95
+- Copyright (c) 2026 ETQWFD
+
+两段版权均采用 MIT License，修改与再分发时必须同时保留上述版权声明与许可全文。完整许可见 [LICENSE](LICENSE) 与官网“版权与许可”页。
