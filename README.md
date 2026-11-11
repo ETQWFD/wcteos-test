@@ -1,6 +1,10 @@
-# WCT-Kernel
+# wcteos 测试版
 
-WCT-OS 自研内核（UEFI 原生，**不依赖 Linux 内核**）+ 自研系统压缩格式 `.wcte`。
+> 本项目基于开源项目 [wct-kernel](https://github.com/ETQWFD/wct-kernel) 开发，遵循 MIT 许可证，
+> 保留原作者 Copyright (c) 2026 aqtwWCT95 的版权声明。本项目版权：Copyright (c) 2026 ETQWFD。
+> 本项目是测试版本，不对性能或完整性作任何超出实测范围的承诺。
+
+WCT-OS 内核（基于 wct-kernel 的 UEFI 实验版本，运行时不经过 Linux 内核）+ 系统压缩格式 `.wcte`。
 
 ```
 kernel/        内核源码
