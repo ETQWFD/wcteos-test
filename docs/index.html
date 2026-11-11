@@ -1,99 +1,78 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>wcteos 测试版 - 自研内核与桌面</title>
+<title>wcteos 测试版</title>
 <style>
-:root{--paper:#e2ded4;--ink:#262422;--line:#c9c2b4;--accent:#34568a}
+:root{--bg:#f2eee3;--ink:#2a2724;--sub:#6d675c;--accent:#34568a;--line:#d3cbb8;--panel:#faf7ee}
 *{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);
-font:15px/1.75 -apple-system,"Noto Sans SC","Microsoft YaHei",sans-serif}
-.wrap{max-width:880px;margin:0 auto;padding:56px 20px 72px}
-h1{font-size:30px;font-weight:600;margin:0 0 6px;letter-spacing:.5px}
-.sub{color:#6b6559;font-size:14px;margin-bottom:36px}
-h2{font-size:19px;margin:40px 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.75 "Noto Sans CJK SC",system-ui,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:56px 24px 80px}
+header{border-bottom:3px double var(--line);padding-bottom:22px;margin-bottom:34px}
+h1{margin:0;font-size:34px;letter-spacing:.02em}
+.tag{color:var(--sub);font-size:14px;margin-top:8px}
+h2{font-size:21px;margin:42px 0 14px;color:var(--accent)}
+h3{font-size:16px;margin:20px 0 6px}
 p{margin:10px 0}
-a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(52,86,138,.35)}
-a:hover{border-bottom-color:var(--accent)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:14px}
-.card{background:#ece8de;border:1px solid var(--line);padding:14px 16px}
-.card b{display:block;font-weight:600;margin-bottom:4px;color:var(--accent)}
-.card span{font-size:13.5px;color:#57534a}
-pre{background:#e7e2d6;border:1px solid var(--line);padding:12px 14px;overflow:auto;font-size:13px}
-table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
-td,th{border:1px solid var(--line);padding:9px 11px;text-align:left}
-th{background:#e7e2d6;font-weight:600}
-img{width:100%;border:1px solid var(--line);background:#fff;display:block}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
-.foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:#6b6559;font-size:13px}
-</style>
-</head>
-<body>
-<div class="wrap">
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);padding:18px 20px}
+.card h3{margin-top:0}
+code{background:#e7e0cf;padding:1px 5px;font:13.5px/1.5 Consolas,monospace}
+pre{background:#25282e;color:#e6e8ea;padding:14px 16px;overflow:auto;font:13.5px/1.7 Consolas,monospace}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left}
+th{background:#e7e0cf}
+a{color:var(--accent)}
+.notice{background:#e9e2cf;border-left:4px solid var(--accent);padding:12px 16px;margin:18px 0;font-size:14.5px}
+footer{margin-top:56px;border-top:1px solid var(--line);padding-top:18px;color:var(--sub);font-size:13.5px;line-height:1.9}
+.shot{width:100%;border:1px solid var(--line);background:#fff}
+</style></head><body><div class="wrap">
 
+<header>
 <h1>wcteos 测试版</h1>
-<div class="sub">0.9-test · 自研 x86_64 / ia32 UEFI 内核，自带引导、桌面与驱动，不依赖 Linux</div>
+<div class="tag">UEFI 系统实验版本 · 0.9-test · x86_64 / ia32 · 基于开源项目 wct-kernel 开发</div>
+</header>
 
-<p>wcteos 是一个从零写起的小系统：没有 Linux 内核、没有 GRUB、没有桌面环境框架。开机由固件直接加载 <code>BOOTX64.EFI</code>，内核自己枚举 PCI、初始化磁盘与网卡、建立进程表、绘制桌面。全部代码是 C，编译成单个 EFI 可执行文件。</p>
+<div class="notice"><b>来源与许可</b>：本项目基于开源项目 <a href="https://github.com/ETQWFD/wct-kernel">wct-kernel</a> 开发，遵循 MIT 许可证，并保留原作者 <b>aqtwWCT95</b> 的版权声明。完整许可见 <a href="license.html">版权与许可</a>。</div>
 
-<h2>当前能力</h2>
-<div class="grid">
-  <div class="card"><b>原生引导</b><span>UEFI 直接引导，FAT32 分区内放 EFI + /wct 负载即可启动，也提供可写的 U 盘镜像。</span></div>
-  <div class="card"><b>自绘桌面</span><span>纸片主题，桌面图标可双击，任务栏含开始菜单、窗口按钮、音量、网络、数字时钟。</span></div>
-  <div class="card"><b>真实进程表</b><span>16 项内核进程表，任务管理器可选中进程并结束（内核进程受保护），支持新建进程。</span></div>
-  <div class="card"><b>网卡驱动</b><span>Intel e1000 与 Realtek 8139 双驱动；e1000 实测 DHCP + ARP 往返成功，托盘显示连接状态。</span></div>
-  <div class="card"><b>PS/2 鼠标</b><span>i8042 正确初始化，固件不提供指针协议时自动兜底，光标为黑色箭头。</span></div>
-  <div class="card"><b>中文点阵</b><span>583 个 16×16 中文字形预生成进内核，界面全中文，不依赖运行时字体文件。</span></div>
-  <div class="card"><b>壁纸与主题</b><span>六档主题配色、六种壁纸（纯色/渐变/网格/动态 .glf/纸纹/星夜），可即时切换。</span></div>
-  <div class="card"><b>文件关联</span><span>.wct 可执行、.wet 脚本、.dwc 依赖声明，双击或在运行框输入即可执行。</span></div>
-</div>
-
-<h2>界面</h2>
-<div class="grid2">
-  <div><img src="assets/shot-desktop.png" alt="桌面"><p class="sub">桌面图标与任务栏</p></div>
-  <div><img src="assets/shot-net.png" alt="网络面板"><p class="sub">托盘网络面板</p></div>
-  <div><img src="assets/shot-taskmgr.png" alt="任务管理器"><p class="sub">任务管理器与结束进程</p></div>
-  <div><img src="assets/shot-settings.png" alt="设置"><p class="sub">主题与壁纸设置</p></div>
-</div>
+<h2>它是什么</h2>
+<p>一个直接由 UEFI 固件加载的实验性系统镜像：开机进图形桌面，带文件管理器、终端、文本编辑器、任务管理器与设置，能读写 FAT32、加载网卡驱动、执行 <code>.wct</code> 模块。代码为 C，编译成单个 EFI 可执行文件，运行时不经过 Linux 内核。</p>
+<p>它目前是测试版本，不是完整桌面操作系统：没有软件生态、没有安装到硬盘的完整流程、没有音频输出验证，性能数据也不具备与其他系统对比的条件。</p>
 
 <h2>下载</h2>
 <table>
 <tr><th>文件</th><th>说明</th></tr>
-<tr><td><a href="https://github.com/ETQWFD/wcteos-test/releases">wcteos-0.9-test.iso</a></td><td>UEFI 光盘镜像，可刻盘或挂到虚拟机光驱</td></tr>
-<tr><td><a href="https://github.com/ETQWFD/wcteos-test/releases">wcteos-0.9-test-usb.img</a></td><td>48MB FAT32 镜像，dd 到 U 盘即可启动</td></tr>
-<tr><td><a href="https://github.com/ETQWFD/wcteos-test">源码与内核代码</a></td><td>全部 C 源码、编译脚本、构建说明</td></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test/releases/download/v0.9-test/wcteos-0.9-test.iso">wcteos-0.9-test.iso</a></td><td>光盘镜像，可刻盘或挂虚拟机光驱</td></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test/releases/download/v0.9-test/wcteos-0.9-test-usb.img">wcteos-0.9-test-usb.img</a></td><td>48MB FAT32 镜像，dd 到 U 盘即可启动</td></tr>
+<tr><td><a href="https://github.com/ETQWFD/wcteos-test">源码仓库</a></td><td>内核、桌面外壳、模块工具与构建脚本</td></tr>
 </table>
 
-<h2>自己编译</h2>
-<pre>sudo apt install gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 mtools dosfstools xorriso
-x86_64-w64-mingw32-gcc -ffreestanding -fno-stack-protector -fno-builtin \
-  -mno-red-zone -O2 -Ikernel -c kernel/kernel.c -o kernel.o
-x86_64-w64-mingw32-gcc -nostdlib -Wl,--subsystem,10 -Wl,-e,efi_main \
-  -Wl,--image-base=0x10000000 -Wl,--enable-reloc-section -Wl,--gc-sections \
-  -o BOOTX64.EFI kernel.o -lgcc</pre>
-<p>把 <code>BOOTX64.EFI</code> 放到 FAT32 分区的 <code>\EFI\BOOT\</code> 下即可引导。桌面资源放在 <code>\wct\</code>：<code>wall\default.glf</code> 为动态壁纸，<code>autogui</code> 存在时开机直进桌面。</p>
+<h2>界面</h2>
+<img class="shot" src="assets/desktop.png" alt="桌面截图">
+<p>纸片风格桌面：图标列、任务栏、托盘时钟与网络状态；双击图标打开窗口，任务栏右键打开任务管理器，桌面右键可刷新、新建文件夹或文本文档。</p>
 
-<h2>文件类型</h2>
-<table>
-<tr><th>后缀</th><th>含义</th></tr>
-<tr><td>.wct</td><td>可执行程序，内核加载后运行</td></tr>
-<tr><td>.wet</td><td>一键脚本，等价于 .bat / .sh</td></tr>
-<tr><td>.dwc</td><td>依赖声明，等价于 .dll 的系统文件与依赖描述</td></tr>
-<tr><td>.wcte</td><td>压缩包格式，配 WCTE-Compressor 打包与解包</td></tr>
-</table>
-
-<h2>说明</h2>
-<p>当前为测试版。已实测：纸片中文桌面启动、PS/2 鼠标初始化、e1000 与 rtl8139 网卡 ARP 收发、任务管理器结束进程、壁纸切换、ISO 与 U 盘镜像引导。音频仅完成 HDA 控制器初始化，codec 未响应；无线网卡未内置驱动；8139 在 slirp 下连续收包仍不稳定，需实体网卡复测。</p>
+<h2>现在能做的事</h2>
+<div class="grid">
+<div class="card"><h3>文件</h3><p>浏览 FAT32 目录，查看文件属性（大小、类型、属性位），删除普通文件；引导文件与 <code>.dwc</code>、<code>.glf</code> 受保护，拒绝删除。</p></div>
+<div class="card"><h3>终端</h3><p>文件、网络、系统三类命令；提示符紧跟输出。支持 <code>attrib</code>、<code>ipconfig</code>、<code>ping</code>、<code>run</code> 等。</p></div>
+<div class="card"><h3>模块</h3><p><code>.wct</code> 模块可双击或在终端 <code>run</code>；支持 WCTX 混淆容器，加载前校验 CRC32。</p></div>
+<div class="card"><h3>网络</h3><p>e1000 与 rtl8139 驱动，DHCP 取址、ARP 解析网关；rtl8139 在模拟网络下不稳定，未宣称可用。</p></div>
+<div class="card"><h3>桌面</h3><p>主题与壁纸切换（含 <code>.glf</code> 动态壁纸）、运行框、任务管理器、锁屏。</p></div>
+<div class="card"><h3>构建</h3><p>单个 EFI 可执行，mingw-w64 交叉编译，xorriso 打 ISO，mtools 写 ESP。</p></div>
+</div>
 
 <h2>文档</h2>
-<div class="docs">
-<p><a href="wct-compile.html"><b>.wct 编译手册</b></a><br>WCT1 头结构、可复制的 mingw 编译命令、WCTX 打包与入口约束。</p>
-<p><a href="terminal.html"><b>终端使用手册</b></a><br>文件、网络、系统三类命令全表，以及当前限制。</p>
-<p><a href="performance.html"><b>内核运行报告</b></a><br>启动各阶段实测结果、rdtsc 原始计数与口径说明。</p>
-</div>
+<table>
+<tr><th>文档</th><th>内容</th></tr>
+<tr><td><a href="docs/wct-compile.html">.wct 编译手册</a></td><td>从装工具链到打包运行，含完整命令与常见错误</td></tr>
+<tr><td><a href="docs/terminal.html">终端使用手册</a></td><td>全部命令、示例与限制</td></tr>
+<tr><td><a href="docs/performance.html">内核运行报告</a></td><td>测试环境、复现命令、实测结果与不能确认的部分</td></tr>
+</table>
 
-<div class="foot">仓库：<a href="https://github.com/ETQWFD/wcteos-test">github.com/ETQWFD/wcteos-test</a> · 内核代码：<a href="https://github.com/ETQWFD/wct-kernel">wct-kernel</a></div>
-</div>
-</body>
-</html>
+<h2>许可</h2>
+<p>MIT。项目保留本项目作者与原作者 <b>aqtwWCT95</b> 的版权声明；再分发时请一并保留。详见 <a href="license.html">版权与许可</a>。</p>
+
+<footer>
+wcteos 测试版 · 基于 <a href="https://github.com/ETQWFD/wct-kernel">wct-kernel</a> 开发<br>
+Copyright (c) 2026 ETQWFD · Copyright (c) 2026 aqtwWCT95 · MIT License<br>
+仓库：<a href="https://github.com/ETQWFD/wcteos-test">github.com/ETQWFD/wcteos-test</a>
+</footer>
+</div></body></html>
