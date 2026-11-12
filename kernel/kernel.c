@@ -484,7 +484,7 @@ static int boot_menu(void)
     outc(0x0B, L"        wcteos LTS 1.0  /  Boot Manager");
     outln(L"");
     outln(L"  1. wcteos LTS 1.0        Full (Linux + Native)");
-    outln(L"  2. wcteos Native Only    Native only (No Linux)");
+    outln(L"  2. wcteos Pro            Native only (No Linux)");
     outln(L"");
     outc(0x0A, L"  Press 1 or 2, Enter for default (1)...");
     outln(L"");
@@ -912,8 +912,11 @@ static void scan_volumes(void)
         if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(handles[i], &simple_fs_guid, (VOID **)&fs)) || !fs)
             continue;
         EFI_FILE_PROTOCOL *root = NULL;
-        if (EFI_IS_ERROR(fs->OpenVolume(fs, &root)) || !root)
+        if (g_loaded && handles[i] == g_loaded->DeviceHandle && ROOT) {
+            root = ROOT;                       /* 启动卷复用已打开根句柄，避免二次 OpenVolume */
+        } else if (EFI_IS_ERROR(fs->OpenVolume(fs, &root)) || !root) {
             continue;
+        }
 
         int idx = vol_count++;
         vol_roots[idx] = root;
@@ -1798,7 +1801,7 @@ static void cmd_linux(void)
 
 static void cmd_native(void)
 {
-    outln(L"wcteos Native is the primary boot environment.");
+    outln(L"wcteos Pro is the primary boot environment.");
 }
 
 typedef struct {
@@ -1898,7 +1901,7 @@ static int list_package_commands(void)
 
 static void cmd_help(void)
 {
-    outc(theme()->accent, L"wcteos Native");
+    outc(theme()->accent, L"wcteos Pro");
     outln(L"  commands");
     outln(L"  ----------------------------------------------------------");
     outc(theme()->prompt, L"  help");
@@ -1980,7 +1983,7 @@ static void cmd_help(void)
 
 static void cmd_ver(void)
 {
-    outln(L"wcteos Native Shell 1.0");
+    outln(L"wcteos Pro Shell 1.0");
     outln(L"Freestanding C  /  x86_64 UEFI  /  FAT32 shared volume");
     outln(L"Compatibility subsystem: wcteos Linux (CPython 3.11.2)");
 }
@@ -3105,6 +3108,7 @@ static void cmd_api(CHAR16 *args)
 /* ---- wcteos 桌面外壳：开始菜单 / 运行框 / 设置 / 任务管理器 / 关于 / 锁屏 ---- */
 #include "wcteos_ui.inc"
 #include "oobe.inc"
+#include "installer.inc"
 
 static void print_banner(void)
 {
@@ -3113,7 +3117,7 @@ static void print_banner(void)
 
     draw_wct_logo();
     outln(L"");
-    outc(0x0B, L"   wcteos Native 1.0  /  C / x86_64 UEFI / FAT32");
+    outc(0x0B, L"   wcteos Pro 1.0  /  C / x86_64 UEFI / FAT32");
     outln(L"");
     outln(linux_available ? L"   Self-developed native shell / Linux subsystem" : L"   Self-contained native-only build");
     outln(L"");
@@ -3279,6 +3283,7 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"about")) cmd_about();
     else if (weq(command, L"color")) cmd_color(args);
     else if (weq(command, L"tty")) cmd_tty();
+    else if (weq(command, L"installfmt")) cmd_instfmt();
     else if (weq(command, L"gui")) cmd_gui();
     else if (weq(command, L"exitgui")) cmd_exitgui();
     else if (weq(command, L"clear")) cmd_clear();
@@ -3377,7 +3382,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st)
         }
     }
 
-    /* 首次开机：没有 \wct\oobe.cfg 时先走设置向导，完成后进桌面 */
+    /* 首次开机：没有 \wct\oobe.cfg 时先走设置向导，完成后进桌面。
+       注意：在此之前不能对启动磁盘做 PIO 读（会破坏固件 FAT 句柄）。 */
     {
         EFI_FILE_PROTOCOL *oc = NULL;
         if (!open_path(L"\\wct\\oobe.cfg", &oc, EFI_FILE_MODE_READ, 0)) {
@@ -3387,6 +3393,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st)
             }
         } else {
             oc->Close(oc);
+            cmd_gui();      /* 已完成 OOBE：默认直接进桌面 */
         }
     }
 

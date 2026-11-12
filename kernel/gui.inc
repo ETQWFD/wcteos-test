@@ -201,8 +201,20 @@ static void gfx_char16(int x, int y, unsigned short cp, UINT32 c)
 static void gfx_text_w(int x, int y, const CHAR16 *s, UINT32 c)
 {
     while (*s) {
-        if ((unsigned short)*s <= 126) { gfx_char(x, y, (unsigned char)*s, c); x += 8; }
-        else { gfx_char16(x, y, (unsigned short)*s, c); x += 16; }
+        unsigned short cp = (unsigned short)*s;
+        unsigned char sub = 0;
+        if (cp == 0xFF0C) sub = ',';
+        else if (cp == 0xFF08) sub = '(';
+        else if (cp == 0xFF09) sub = ')';
+        else if (cp == 0xFF1A) sub = ':';
+        else if (cp == 0xFF1B) sub = ';';
+        else if (cp == 0xFF01) sub = '!';
+        else if (cp == 0xFF1F) sub = '?';
+        else if (cp == 0x3002) sub = '.';
+        else if (cp == 0x201C || cp == 0x201D) sub = '"';
+        if (sub) { gfx_char(x, y, sub, c); x += 8; }
+        else if (cp <= 126) { gfx_char(x, y, (unsigned char)cp, c); x += 8; }
+        else { gfx_char16(x, y, cp, c); x += 16; }
         ++s;
     }
 }
@@ -546,6 +558,8 @@ static void file_full_path(GuiWin *w, int row, CHAR16 *out, int cap)
 static int file_is_protected(const CHAR16 *path, const CHAR16 *name)
 {
     if (wstr_contains(path, L"\\EFI")) return 1;
+    if (wstr_contains(path, L"\\wct\\sys")) return 1;
+    if (weq(name, L"oobe.cfg") || weq(name, L"nooobe") || weq(name, L"autorun")) return 1;
     int n = wlen(name);
     if (n > 4) {
         const CHAR16 *ext = name + n - 4;
