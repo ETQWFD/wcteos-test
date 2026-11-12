@@ -38,6 +38,9 @@ static int oobe_user_len;
 static CHAR16 oobe_pass[32];
 static int oobe_pass_len;
 static int oobe_agree;
+static int oobe_admin;
+static int oobe_wifi_skip;
+static int oobe_warn;
 static int oobe_step;
 static int oobe_scroll;
 static int oobe_ticks;
@@ -95,9 +98,9 @@ static const CHAR16 *oo_str(int id)
 
 static int oo_w(const CHAR16 *s)
 {
-    int n = 0;
-    while (s && s[n]) ++n;
-    return n * 8;
+    int w = 0;
+    while (s && *s) { w += (*s <= 126) ? 8 : 16; ++s; }
+    return w;
 }
 
 static void oo_text(int x, int y, const CHAR16 *s, UINT32 c)
@@ -108,6 +111,20 @@ static void oo_text(int x, int y, const CHAR16 *s, UINT32 c)
 static void oo_text_c(int cx, int y, const CHAR16 *s, UINT32 c)
 {
     oo_text(cx - oo_w(s) / 2, y, s, c);
+}
+
+static void oo_text_wrap(int x, int y, int maxw, const CHAR16 *s, UINT32 c)
+{
+    int cx = x, cy = y;
+    while (s && *s) {
+        int w = (*s <= 126) ? 8 : 16;
+        int punct = (*s == L',' || *s == 0xFF0C || *s == 0x3002 || *s == 0xFF1B || *s == 0xFF1A);
+        if (!punct && cx + w > x + maxw) { cx = x; cy += 22; }
+        CHAR16 one[2]; one[0] = *s; one[1] = 0;
+        gfx_text_w(cx, cy, one, c);
+        cx += w;
+        ++s;
+    }
 }
 
 static void oo_box(int x, int y, int w, int h, UINT32 c)
@@ -146,6 +163,28 @@ static void oobe_draw(void)
     int cx = W / 2;
 
     oo_box(0, 0, W, H, bg);
+
+    if (oobe_step == 6) {
+        static const CHAR16 *poems[] = {
+            L"千门万户曈曈日，总把新桃换旧符",
+            L"海内存知己，天涯若比邻",
+            L"我们正在帮你完成最后的操作",
+            L"这个操作可能需要一两分钟，请耐心等待，请勿关闭电脑",
+            L"正在应用时间、区域与账户设置"
+        };
+        oo_text_c(cx, 60, oo_str(OO_TITLE), ink);
+        oo_text_c(cx, H / 2 - 130, L"正在完成最后的设置", ink);
+        oo_text_c(cx, H / 2 - 70, poems[(oobe_ticks / 240) % 5], accent);
+        int bx = cx - 200, by = H / 2 + 10, bw = 400;
+        gfx_fill(bx, by, bw, 8, line);
+        int fill = (int)((long long)oobe_ticks * bw / 4500);
+        if (fill > bw) fill = bw;
+        gfx_fill(bx, by, fill, 8, accent);
+        oo_text_c(cx, by + 34, L"请勿关闭电脑，完成后将自动进入桌面", sub);
+        gfx_present();
+        return;
+    }
+
     oo_text(cx - 110, 46, oo_str(OO_TITLE), ink);
     oo_text_c(cx, 74, oo_str(OO_SUB), sub);
 
@@ -206,6 +245,12 @@ static void oobe_draw(void)
         shown[n] = 0;
         oo_text(tx + 10, y + 9, shown, ink);
         if ((oobe_ticks / 10) % 2 == 0) gfx_fill(tx + 10 + oo_w(shown) + 2, y + 9, 2, 16, accent);
+        int ay = ty + 132;
+        oo_box(tx, ay + 2, 16, 16, gfx_rgb(255, 255, 255));
+        gfx_border(tx, ay + 2, 16, 16, accent);
+        if (oobe_admin) gfx_fill(tx + 4, ay + 6, 8, 8, accent);
+        oo_text(tx + 26, ay, L"将此账户加入管理员组（Administrators）", ink);
+        oo_text(tx, ay + 30, L"不勾选则为普通用户组，之后可在设置里改", sub);
     } else if (oobe_step == 3) {
         oo_text(tx, ty, oo_str(OO_PASS_HEAD), ink);
         oo_text(tx, ty + 26, oo_str(OO_PASS_TIP), sub);
@@ -223,13 +268,19 @@ static void oobe_draw(void)
         oo_box(tx, y, pw - 80, 60, gfx_rgb(250, 244, 235));
         gfx_border(tx, y, pw - 80, 60, line);
         oo_text(tx + 14, y + 20, oo_str(OO_WIFI_NONE), sub);
-        oo_text(tx, ty + 120, oo_str(OO_WIFI_TIP), sub);
+        oo_text_wrap(tx, ty + 120, pw - 80, oo_str(OO_WIFI_TIP), sub);
+        oo_text(tx, ty + 154, L"本版本尚未识别到可用的无线网卡驱动，", sub);
+        oo_text(tx, ty + 178, L"请按空格选择右侧“我没有WIFI”，再按 Enter 继续。", sub);
+        if (oobe_wifi_skip) {
+            oo_text(tx, ty + 206, L"已选择：我没有WIFI，将跳过网络设置", accent);
+        }
+        if (oobe_warn) oo_text(tx, ty + 230, L"没有可用的无线网络，请先按空格选择“我没有WIFI”", gfx_rgb(180, 60, 50));
     } else if (oobe_step == 5) {
         oo_text(tx, ty, oo_str(OO_LIC_HEAD), ink);
         int y = ty + 36;
         oo_box(tx, y, pw - 80, 120, gfx_rgb(250, 250, 252));
         gfx_border(tx, y, pw - 80, 120, line);
-        oo_text(tx + 14, y + 18, oo_str(OO_LIC_BODY), ink);
+        oo_text_wrap(tx + 14, y + 18, pw - 80 - 28, oo_str(OO_LIC_BODY), ink);
         int cy = y + 146;
         gfx_fill(tx, cy + 2, 16, 16, gfx_rgb(255, 255, 255));
         gfx_border(tx, cy + 2, 16, 16, accent);
@@ -238,21 +289,34 @@ static void oobe_draw(void)
         }
         oo_text(tx + 26, cy, oo_str(OO_LIC_AGREE), ink);
     } else {
-        oo_text_c(cx, py + ph / 2 - 40, oo_str(OO_PROG), ink);
-        int bx = cx - 160, by = py + ph / 2, bw = 320;
+        static const CHAR16 *poems[] = {
+            L"千门万户曈曈日，总把新桃换旧符",
+            L"海内存知己，天涯若比邻",
+            L"我们正在帮你完成最后的操作",
+            L"这个操作可能需要一两分钟，请耐心等待，请勿关闭电脑",
+            L"正在应用时间、区域与账户设置"
+        };
+        oo_text_c(cx, py + ph / 2 - 110, oo_str(OO_PROG), ink);
+        oo_text_c(cx, py + ph / 2 - 60, poems[(oobe_ticks / 240) % 5], accent);
+        int bx = cx - 180, by = py + ph / 2 + 10, bw = 360;
         gfx_fill(bx, by, bw, 8, line);
-        int fill = (oobe_ticks * 4);
+        int fill = (int)((long long)oobe_ticks * bw / 4500);
         if (fill > bw) fill = bw;
         gfx_fill(bx, by, fill, 8, accent);
-        oo_text_c(cx, by + 24, oo_str(OO_PROG2), sub);
+        oo_text_c(cx, by + 26, oo_str(OO_PROG2), sub);
     }
 
     oo_text_c(cx, H - 62, oo_str(OO_KEYS), sub);
     /* 按钮 */
     int bw = 120, bh = 34, by = H - 108;
     int bx2 = cx + 90;
-    oo_round(bx2, by, bw, bh, accent);
+    int next_ok = (oobe_step == 4) ? oobe_wifi_skip : 1;
+    oo_round(bx2, by, bw, bh, next_ok ? accent : gfx_rgb(190, 186, 176));
     oo_text_c(bx2 + bw / 2, by + 9, oo_str(OO_NEXT), gfx_rgb(255, 255, 255));
+    if (oobe_step == 4) {
+        oo_text(bx2 + bw + 18, by + 9, L"我没有WIFI", accent);
+        if (oobe_wifi_skip) gfx_fill(bx2 + bw + 18, by + 30, 96, 2, accent);
+    }
     if (oobe_step > 0) {
         int bx1 = cx - 210;
         oo_round(bx1, by, bw, bh, gfx_rgb(255, 255, 255));
@@ -282,7 +346,12 @@ static void oobe_write_cfg(void)
     buf[n++] = '\n';
     const char *k4 = "pass="; for (int i = 0; k4[i]; ++i) buf[n++] = k4[i];
     buf[n++] = oobe_pass_len ? '1' : '0'; buf[n++] = '\n';
-    const char *k5 = "wifi=skip\nadmin=0\n"; for (int i = 0; k5[i]; ++i) buf[n++] = k5[i];
+    const char *k5 = "wifi="; for (int i = 0; k5[i]; ++i) buf[n++] = k5[i];
+    buf[n++] = oobe_wifi_skip ? 's' : 'n';
+    buf[n++] = '\n';
+    const char *k6 = "admin="; for (int i = 0; k6[i]; ++i) buf[n++] = k6[i];
+    buf[n++] = oobe_admin ? '1' : '0';
+    buf[n++] = '\n';
     write_bytes(L"\\wct\\oobe.cfg", buf, (UINTN)n);
 }
 
@@ -360,10 +429,15 @@ static int oobe_run(void)
                 } else if (oobe_step == 3) {
                     ++oobe_step;
                 } else if (oobe_step == 4) {
-                    ++oobe_step;
+                    if (oobe_wifi_skip) ++oobe_step; else oobe_warn = 1;
                 } else if (oobe_step == 5) {
                     if (oobe_agree) { ++oobe_step; oobe_ticks = 0; }
                 }
+            } else if (oobe_step == 2 && uni == L' ') {
+                oobe_admin = !oobe_admin;
+            } else if (oobe_step == 4 && uni == L' ') {
+                oobe_wifi_skip = 1;
+                oobe_warn = 0;
             } else if (oobe_step == 5 && uni == L' ') {
                 oobe_agree = !oobe_agree;
             } else if (uni >= 0x20 && uni < 0x7F) {
@@ -378,7 +452,7 @@ static int oobe_run(void)
         if (oobe_step == 6) {
             ++oobe_ticks;
             redraw = 1;
-            if (oobe_ticks > 90) {
+            if (oobe_ticks > 4500) {
                 oobe_write_cfg();
                 break;
             }
