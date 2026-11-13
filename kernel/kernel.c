@@ -1,5 +1,12 @@
 #include "efi.h"
 
+/* 跨编译单元前向声明：net.c / wctmod.c 在文件末尾才 include，
+   提前声明确保调用点类型正确，避免隐式声明导致的类型冲突 */
+void net_info_text(char *out, int cap);
+void net_stat_text(char *out, int cap);
+int net_ping_gw(UINT64 *min_cycles);
+int wct_run_file(EFI_FILE_PROTOCOL *root, const CHAR16 *path);
+
 static EFI_SYSTEM_TABLE *ST;
 #define BS (ST->BootServices)   /* 驱动模块统一使用 BS 别名 */
 static EFI_HANDLE g_image;
@@ -3283,6 +3290,7 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"about")) cmd_about();
     else if (weq(command, L"color")) cmd_color(args);
     else if (weq(command, L"tty")) cmd_tty();
+    else if (weq(command, L"install")) cmd_install(args);
     else if (weq(command, L"installfmt")) cmd_instfmt();
     else if (weq(command, L"gui")) cmd_gui();
     else if (weq(command, L"exitgui")) cmd_exitgui();
@@ -3372,6 +3380,33 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st)
 
     /* 内建基准：TSC 校准 + 内存吞吐（结果可写进性能报告） */
     bench_report();
+
+    /* 无人值守/安装介质：\wct\autorun.early 在进入桌面与 OOBE 之前逐行执行 */
+    {
+        static UINT8 ebuf[512];
+        UINTN en = read_whole_file(L"\\wct\\au_early", ebuf, sizeof(ebuf) - 1);
+        if (en) {
+            ebuf[en] = 0;
+            UINTN i = 0;
+            while (i < en) {
+                CHAR16 cmd[128]; int ci = 0;
+                while (i < en && (ebuf[i] == '\r' || ebuf[i] == '\n')) ++i;
+                while (i < en && ebuf[i] != '\r' && ebuf[i] != '\n' && ci < 127) cmd[ci++] = (CHAR16)ebuf[i++];
+                cmd[ci] = 0;
+                if (ci) process_command(cmd);
+                while (i < en && (ebuf[i] == '\r' || ebuf[i] == '\n')) ++i;
+            }
+        }
+    }
+
+    /* 安装介质：\wct\instmode 存在时先给安装/维护选择，避免误写数据盘 */
+    {
+        EFI_FILE_PROTOCOL *im = NULL;
+        if (open_path(L"\\wct\\instmode", &im, EFI_FILE_MODE_READ, 0)) {
+            im->Close(im);
+            installer_menu();
+        }
+    }
 
     /* 演示/直启：存在 \wct\autogui 时直接进入桌面 */
     {
