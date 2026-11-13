@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wcteos 蓝屏修复指引</title>
+<style>
+body{margin:0;background:#0b1a33;color:#eaf2ff;font:16px/1.7 -apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:48px 24px}
+h1{font-size:26px;margin:0 0 8px}
+h1 span{color:#8fb8ff}
+h2{font-size:18px;margin:28px 0 8px;color:#9fd0ff}
+p,li{color:#c9d9f0}
+.box{background:#122a4d;border:1px solid #1e4478;border-radius:10px;padding:16px 18px;margin:16px 0}
+code{background:#08142a;padding:2px 6px;border-radius:4px;color:#bfe0ff}
+a{color:#8fb8ff}
+</style>
+</head>
+<body><div class="wrap">
+<h1>wcteos <span>:(</span> 蓝屏修复指引</h1>
+<p>你的系统遇到无法恢复的错误，已自动停止，以避免继续写盘造成文件损坏。请按下面的步骤处理。</p>
+<div class="box">
+<h2>1. 记录错误代码</h2>
+<p>蓝屏中部会显示 <code>WCT-BSOD-0x00000001</code> 这类代码，拍照或抄下它。</p>
+<h2>2. 重启进入维护 Shell</h2>
+<p>重启后在安装介质菜单选择 <code>2 Maintenance shell</code>，或开机按 F2 进入固件设置，从 U 盘启动。</p>
+<h2>3. 检查文件系统</h2>
+<p>在 wcteos Shell 里执行 <code>store</code> 检查模块状态，执行 <code>help</code> 查看可用命令；必要时用安装器“修复系统”重新写入 <code>EFI/BOOT/BOOTX64.EFI</code>。</p>
+<h2>4. 仍然无法启动</h2>
+<p>用安装 ISO 重新安装到同一磁盘，安装器只格式化目标分区，不会动其他磁盘的数据分区。</p>
+</div>
+<h2>常见代码</h2>
+<ul>
+<li><code>0x00000001</code>：内核主循环异常，多为引导文件损坏。</li>
+<li><code>0x00000002</code>：图形系统初始化失败，检查显卡与显存。</li>
+<li><code>0x00000003</code>：文件系统读写失败，检查磁盘连接。</li>
+</ul>
+<p>需要提交问题：<a href="https://github.com/ETQWFD/wcteos-test/issues">github.com/ETQWFD/wcteos-test/issues</a></p>
+</div></body></html>
