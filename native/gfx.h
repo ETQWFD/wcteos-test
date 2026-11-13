@@ -10,6 +10,7 @@ static UINT32 *gfx_fb, *gfx_hw, *gfx_back;
 static UINTN gfx_w, gfx_h, gfx_stride;
 
 /* ---------- 底层绘图原语 ---------- */
+static int zh_lookup(unsigned short cp);
 static UINT32 gfx_rgb(UINT8 r, UINT8 g, UINT8 b) { 
     UINT32 fmt = gfx->Mode->Info->PixelFormat; 
     if (fmt == 0) return ((UINT32)b << 16) | ((UINT32)g << 8) | r; 
