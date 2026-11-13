@@ -3111,6 +3111,7 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"color")) cmd_color(args);
     else if (weq(command, L"tty")) cmd_tty();
     else if (weq(command, L"gui")) cmd_gui();
+    else if (weq(command, L"bug") || weq(command, L"bsod")) cmd_bsod();
     else if (weq(command, L"exitgui")) cmd_exitgui();
     else if (weq(command, L"clear")) cmd_clear();
     else if (weq(command, L"banner")) { ST->ConOut->ClearScreen(ST->ConOut); print_banner(); }

@@ -1,3 +1,4 @@
+#include "qr_fix.h"
 /*WCT-OS
 Copyright (C) 2026  aqtwWCT95
 
@@ -409,6 +410,42 @@ static void gui_loop(void) {
         ST->BootServices->Stall(1000);
     }
     dframe_end();
+}
+
+
+static void cmd_bsod(void) {
+    if (EFI_IS_ERROR(ST->BootServices->LocateProtocol(&gop_guid, NULL, (VOID **)&gfx))) return;
+    gfx_w = gfx->Mode->Info->HorizontalResolution;
+    gfx_h = gfx->Mode->Info->VerticalResolution;
+    gfx_stride = gfx->Mode->Info->PixelsPerScanLine;
+    gfx_hw = (UINT32 *)(UINTN)gfx->Mode->FrameBufferBase;
+    VOID *buf = NULL;
+    if (!EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, gfx_stride * gfx_h * 4, &buf)) && buf) gfx_back = (UINT32 *)buf;
+    gfx_fb = gfx_back ? gfx_back : gfx_hw;
+    gfx_active = 1;
+    ST->ConOut->EnableCursor(ST->ConOut, FALSE);
+    UINT32 blue = gfx_rgb(0, 90, 190);
+    UINT32 white = gfx_rgb(255, 255, 255);
+    UINT32 dim = gfx_rgb(200, 220, 245);
+    gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, blue);
+    gfx_text(60, 56, "wcteos :(", white);
+    int cx = (int)gfx_w / 2, cy = (int)gfx_h / 2 - 80;
+    const CHAR16 *l1 = L"系统出错，已停止运行。";
+    const CHAR16 *l2 = L"错误代码: WCT-BSOD-0x00000001";
+    const CHAR16 *l3 = L"位置: 内核 / 图形系统";
+    const CHAR16 *l4 = L"请扫描右下角二维码查看修复方法。";
+    gfx_text_w(cx - 220, cy, l1, white);
+    gfx_text_w(cx - 220, cy + 34, l2, dim);
+    gfx_text_w(cx - 220, cy + 58, l3, dim);
+    gfx_text_w(cx - 300, cy + 96, l4, dim);
+    int mod = 5, n = QR_FIX_N, qw = n * mod;
+    int qx = (int)gfx_w - qw - 48, qy = (int)gfx_h - qw - 48;
+    gfx_fill(qx - 10, qy - 10, qw + 20, qw + 20, gfx_rgb(255, 255, 255));
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            if (qr_fix[y][x]) gfx_fill(qx + x * mod, qy + y * mod, mod, mod, gfx_rgb(0, 0, 0));
+    gfx_present();
+    for (;;) ST->BootServices->Stall(1000000);
 }
 
 static void cmd_gui(void) {
