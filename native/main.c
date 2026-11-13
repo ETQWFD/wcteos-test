@@ -3082,6 +3082,102 @@ static void cmd_clear(void)
     print_banner();
 }
 
+
+static int weq_n(const CHAR16 *a, const CHAR16 *b, int n) {
+    for (int i = 0; i < n; ++i) if (a[i] != b[i]) return 0;
+    return 1;
+}
+static int st_exists(const CHAR16 *path) {
+    EFI_FILE_PROTOCOL *f = NULL;
+    if (open_path(path, &f, EFI_FILE_MODE_READ, 0)) { f->Close(f); return 1; }
+    return 0;
+}
+static int st_copy(const CHAR16 *src, const CHAR16 *dst) {
+    EFI_FILE_PROTOCOL *a = NULL, *b = NULL;
+    if (!open_path(src, &a, EFI_FILE_MODE_READ, 0)) return 0;
+    EFI_FILE_PROTOCOL *old = NULL;
+    if (open_path(dst, &old, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0)) old->Delete(old);
+    int ok = 0;
+    if (!EFI_IS_ERROR(ROOT->Open(ROOT, &b, (CHAR16 *)(dst + 1), EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0)) && b) {
+        UINT8 *buf = NULL;
+        if (!EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, 65536, (VOID **)&buf)) && buf) {
+            ok = 1;
+            for (;;) {
+                UINTN n = 65536;
+                if (EFI_IS_ERROR(a->Read(a, &n, buf)) || n == 0) break;
+                UINTN w = n;
+                if (EFI_IS_ERROR(b->Write(b, &w, buf)) || w != n) { ok = 0; break; }
+            }
+            if (b->Flush) b->Flush(b);
+            ST->BootServices->FreePool(buf);
+        }
+        b->Close(b);
+    }
+    a->Close(a);
+    return ok;
+}
+static void st_list(void) {
+    out_ascii("packages in \\wct\\pkgs:\r\n");
+    EFI_FILE_PROTOCOL *d = NULL;
+    if (!open_path(L"\\wct\\pkgs", &d, EFI_FILE_MODE_READ, 0)) { out_ascii("no package source\r\n"); return; }
+    static UINT8 buf[2048];
+    for (int g = 0; g < 64; ++g) {
+        UINTN sz = sizeof(buf);
+        if (EFI_IS_ERROR(d->Read(d, &sz, buf)) || !sz) break;
+        EFI_FILE_INFO *fi = (EFI_FILE_INFO *)buf;
+        if (!fi->FileName[0]) break;
+        if (fi->FileName[0] == '.') continue;
+        char a[128]; int i = 0;
+        for (; fi->FileName[i] && i < 120; ++i) a[i] = (char)(fi->FileName[i] < 128 ? fi->FileName[i] : '?');
+        a[i] = 0;
+        out_ascii("  ");
+        out_ascii(a);
+        CHAR16 tgt[256];
+        int k = 0;
+        const CHAR16 *pre = L"\\wct\\apps\\";
+        while (pre[k]) { tgt[k] = pre[k]; ++k; }
+        for (int j = 0; fi->FileName[j] && k < 250; ++j) tgt[k++] = fi->FileName[j];
+        tgt[k] = 0;
+        out_ascii(st_exists(tgt) ? "  [installed]\r\n" : "\r\n");
+    }
+    d->Close(d);
+}
+static void st_install(CHAR16 *name) {
+    EFI_FILE_PROTOCOL *ad = NULL;
+    if (!EFI_IS_ERROR(ROOT->Open(ROOT, &ad, L"wct\\apps", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, EFI_FILE_DIRECTORY)) && ad) ad->Close(ad);
+    while (*name == ' ') ++name;
+    if (!*name) { out_ascii("usage: store install <file>\r\n"); return; }
+    CHAR16 src[256], dst[256];
+    int k = 0; const CHAR16 *pre = L"\\wct\\pkgs\\";
+    while (pre[k]) { src[k] = pre[k]; ++k; }
+    int j = 0; for (; name[j] && k < 250; ++j) src[k++] = name[j];
+    src[k] = 0;
+    k = 0; pre = L"\\wct\\apps\\";
+    while (pre[k]) { dst[k] = pre[k]; ++k; }
+    for (j = 0; name[j] && k < 250; ++j) dst[k++] = name[j];
+    dst[k] = 0;
+    out_ascii(st_copy(src, dst) ? "installed\r\n" : "install failed\r\n");
+}
+static void st_remove(CHAR16 *name) {
+    while (*name == ' ') ++name;
+    CHAR16 dst[256];
+    int k = 0; const CHAR16 *pre = L"\\wct\\apps\\";
+    while (pre[k]) { dst[k] = pre[k]; ++k; }
+    for (int j = 0; name[j] && k < 250; ++j) dst[k++] = name[j];
+    dst[k] = 0;
+    EFI_FILE_PROTOCOL *f = NULL;
+    if (!open_path(dst, &f, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0)) { out_ascii("not installed\r\n"); return; }
+    EFI_STATUS st = f->Delete(f);
+    out_ascii(EFI_IS_ERROR(st) ? "remove failed\r\n" : "removed\r\n");
+}
+static void cmd_store(CHAR16 *args) {
+    while (args && *args == ' ') ++args;
+    if (!args || !*args) { st_list(); return; }
+    if (weq_n(args, L"install ", 8)) st_install(args + 8);
+    else if (weq_n(args, L"remove ", 7)) st_remove(args + 7);
+    else out_ascii("usage: store | store install <file> | store remove <file>\r\n");
+}
+
 static void process_command(CHAR16 *line)
 {
     CHAR16 *command, *args;
@@ -3120,6 +3216,7 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"color")) cmd_color(args);
     else if (weq(command, L"tty")) cmd_tty();
     else if (weq(command, L"gui")) cmd_gui();
+    else if (weq(command, L"store")) cmd_store(args);
     else if (weq(command, L"bug") || weq(command, L"bsod")) cmd_bsod();
     else if (weq(command, L"exitgui")) cmd_exitgui();
     else if (weq(command, L"clear")) cmd_clear();
