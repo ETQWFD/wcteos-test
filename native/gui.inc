@@ -595,6 +595,175 @@ static void cmd_bsod(void) {
     for (;;) ST->BootServices->Stall(1000000);
 }
 
+
+typedef struct { UINT32 MediaId; UINT8 RemovableMedia; UINT8 MediaPresent; UINT8 LogicalPartition; UINT8 WriteProtected; UINT64 LastBlock; UINT32 BlockSize; } MY_MEDIA;
+typedef struct { UINT32 Revision; MY_MEDIA *Media; } MY_BIO;
+static EFI_GUID bio_guid = { 0x964E5B21, 0x6459, 0x11D2, { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
+static EFI_GUID sp_guid  = { 0x31878C87, 0x0B75, 0x11D5, { 0x9A, 0x4B, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D } };
+static UINT64 ins_lb(void *m, int off) { return *(UINT64 *)((UINT8 *)m + off); }
+static UINT32 ins_bs(void *m, int off) { return *(UINT32 *)((UINT8 *)m + off); }
+
+static void dbg_num(UINT64 v, CHAR16 *buf, int *p) {
+    CHAR16 t[24]; int n = 0;
+    if (!v) t[n++] = L'0';
+    while (v) { t[n++] = (CHAR16)(L'0' + (v % 10)); v /= 10; }
+    while (n) buf[(*p)++] = t[--n];
+}
+static void dbg_dump(void *m) {
+    CHAR16 b[200]; int p = 0;
+    const CHAR16 *tags[6] = { L"l8=", L"b16=", L"l16=", L"b24=", L"l24=", L"b32=" };
+    int lo[6] = {8, 8, 16, 16, 24, 24}, bo[6] = {16, 20, 24, 28, 32, 36};
+    for (int i = 0; i < 6; ++i) {
+        for (int k = 0; tags[i][k]; ++k) b[p++] = tags[i][k];
+        if (i & 1) dbg_num(ins_bs(m, bo[i]), b, &p); else dbg_num(ins_lb(m, lo[i]), b, &p);
+        b[p++] = L' ';
+    }
+    b[p++] = L'\r'; b[p++] = L'\n'; b[p] = 0;
+    ST->ConOut->OutputString(ST->ConOut, b);
+}
+static int ins_disk_count(EFI_HANDLE *out, int max, UINT64 *mb) {
+    EFI_HANDLE *buf = NULL; UINTN n = 0; int k = 0;
+    if (EFI_IS_ERROR(ST->BootServices->LocateHandleBuffer(2, &bio_guid, NULL, &n, &buf)) || !buf) return 0;
+    for (UINTN i = 0; i < n && k < max; ++i) {
+        void *b = NULL;
+        if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(buf[i], &bio_guid, &b)) || !b) continue;
+        void *m = *(void **)((UINT8 *)b + 8);
+        if (!m) continue;
+        if (((UINT8 *)m)[6]) continue;
+        UINT32 bs = ins_bs(m, 12);
+        UINT64 lb = ins_lb(m, 24);
+        UINT64 bytes = (bs >= 256 && bs <= 8192) ? (lb + 1) * (UINT64)bs : 0;
+        if (bytes < 400ULL * 1024 * 1024) continue;
+        if (!bytes) continue;
+        out[k] = buf[i]; mb[k] = bytes / (1024ULL * 1024); k++;
+    }
+    if (buf) ST->BootServices->FreePool(buf);
+    return k;
+}
+static void ins_ui(int sel, int n, UINT64 *mb, int hot, const char *status) {
+    UINT32 bg = gfx_rgb(9, 30, 60), card = gfx_rgb(245, 248, 252), line = gfx_rgb(210, 222, 238);
+    gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, bg);
+    for (int i = 0; i < (int)gfx_h / 2; ++i) gfx_fill(0, i, (int)gfx_w, 1, gfx_rgb(9, 30 + i / 12, 60 + i / 8));
+    int cx = (int)gfx_w / 2 - 380, cy = 90, cw = 760, ch = (int)gfx_h - 200;
+    gfx_fill(cx, cy, cw, ch, card);
+    gfx_fill(cx, cy, cw, 46, gfx_rgb(16, 84, 150));
+    gfx_text_w(cx + 22, cy + 12, L"wcteos 安装程序", gfx_rgb(255, 255, 255));
+    gfx_text(cx + cw - 34, cy + 12, "X", gfx_rgb(220, 235, 250));
+    gfx_text(cx + 22, cy + 66, "Select target disk", gfx_rgb(40, 60, 90));
+    for (int i = 0; i < n; ++i) {
+        int y = cy + 96 + i * 52;
+        int on = (i == sel);
+        gfx_fill(cx + 22, y, cw - 44, 44, on ? gfx_rgb(206, 226, 250) : gfx_rgb(255, 255, 255));
+        gfx_border(cx + 22, y, cw - 44, 44, on ? gfx_rgb(16, 84, 150) : line);
+        char t[64]; int q = 0;
+        t[q++] = 'D'; t[q++] = 'i'; t[q++] = 's'; t[q++] = 'k'; t[q++] = ' ';
+        t[q++] = (char)('0' + (i % 10)); t[q++] = ' '; t[q++] = ' '; t[q++] = ' ';
+        UINT64 v = mb[i]; char d[24]; int dn = 0;
+        if (!v) { d[dn++] = '0'; }
+        while (v) { d[dn++] = (char)('0' + (v % 10)); v /= 10; }
+        while (dn) t[q++] = d[--dn];
+        t[q++] = ' '; t[q++] = 'M'; t[q++] = 'B'; t[q] = 0;
+        gfx_text(cx + 40, y + 14, t, gfx_rgb(25, 40, 60));
+    }
+    int by = cy + ch - 92;
+    gfx_fill(cx + 22, by, 150, 44, hot == 1 ? gfx_rgb(0, 110, 190) : gfx_rgb(16, 84, 150));
+    gfx_text_w(cx + 62, by + 13, L"安装", gfx_rgb(255, 255, 255));
+    gfx_fill(cx + 190, by, 150, 44, hot == 2 ? gfx_rgb(90, 100, 116) : gfx_rgb(120, 132, 148));
+    gfx_text_w(cx + 230, by + 13, L"退出", gfx_rgb(255, 255, 255));
+    if (status) gfx_text(cx + 22, by + 58, (char *)status, gfx_rgb(70, 90, 115));
+    gfx_present();
+}
+static void ins_progress(const char *label, int pct) {
+    UINT32 bg = gfx_rgb(9, 30, 60);
+    gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, bg);
+    int cx = (int)gfx_w / 2 - 380, cy = (int)gfx_h / 2 - 90;
+    gfx_fill(cx, cy, 760, 180, gfx_rgb(245, 248, 252));
+    gfx_text(cx + 24, cy + 24, (char *)label, gfx_rgb(30, 50, 80));
+    int bw = 712;
+    gfx_fill(cx + 24, cy + 70, bw, 26, gfx_rgb(220, 228, 238));
+    int half = bw / 2;
+    if (pct <= 50) gfx_fill(cx + 24, cy + 70, half * pct / 50, 26, gfx_rgb(16, 120, 200));
+    else { gfx_fill(cx + 24, cy + 70, half, 26, gfx_rgb(40, 150, 90)); gfx_fill(cx + 24 + half, cy + 70, half * (pct - 50) / 50, 26, gfx_rgb(16, 120, 200)); }
+    gfx_fill(cx + 24 + half - 2, cy + 64, 4, 38, gfx_rgb(150, 165, 185));
+    char pc[16]; pc[0] = (char)('0' + pct / 100); pc[1] = (char)('0' + (pct / 10) % 10); pc[2] = '%'; pc[3] = 0;
+    if (pct < 100) { pc[0] = (char)('0' + (pct / 10) % 10); pc[1] = '%'; pc[2] = 0; }
+    gfx_text(cx + 24, cy + 110, pc, gfx_rgb(60, 80, 105));
+    gfx_text(cx + 24, cy + 136, "Do not power off", gfx_rgb(120, 135, 155));
+    gfx_present();
+}
+static int ins_load_core(void) {
+    EFI_DEVICE_PATH_PROTOCOL *dp = NULL;
+    if (!g_loaded) return 0;
+    if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(g_loaded->DeviceHandle, &device_path_guid, (VOID **)&dp)) || !dp) return 0;
+    static UINT8 node[320]; UINT8 *p = node; UINTN used = 0;
+    while (used < 200 && ((UINT8 *)dp)[0] != 0x7F) {
+        UINT16 l = (UINT16)(((UINT8 *)dp)[2] | (((UINT8 *)dp)[3] << 8));
+        if (!l || l > 120) break;
+        for (UINT16 i = 0; i < l; ++i) p[used++] = ((UINT8 *)dp)[i];
+        dp = (EFI_DEVICE_PATH_PROTOCOL *)((UINT8 *)dp + l);
+    }
+    p[used] = 0x04; p[used + 1] = 0x04; UINT16 l2 = 4 + 24; p[used + 2] = (UINT8)l2; p[used + 3] = (UINT8)(l2 >> 8);
+    const char *fp = "\\wct\\install.efi"; int q = 0;
+    while (fp[q]) { p[used + 4 + q * 2] = (UINT8)fp[q]; p[used + 5 + q * 2] = 0; ++q; }
+    p[used + 4 + q * 2] = 0; p[used + 5 + q * 2] = 0;
+    p[used + 4 + (q + 1) * 2] = 0x7F; p[used + 5 + (q + 1) * 2] = 0xFF;
+    p[used + 6 + (q + 1) * 2] = 0x04; p[used + 7 + (q + 1) * 2] = 0x00;
+    EFI_HANDLE ih = NULL;
+    if (EFI_IS_ERROR(ST->BootServices->LoadImage(FALSE, g_image, (EFI_DEVICE_PATH_PROTOCOL *)node, NULL, 0, &ih)) || !ih) return 0;
+    ins_progress("Installing wcteos Pro...", 86);
+    ST->BootServices->StartImage(ih, NULL, NULL);
+    return 1;
+}
+static void cmd_installer(void) {
+    if (EFI_IS_ERROR(ST->BootServices->LocateProtocol(&gop_guid, NULL, (VOID **)&gfx))) return;
+    gfx_w = gfx->Mode->Info->HorizontalResolution; gfx_h = gfx->Mode->Info->VerticalResolution;
+    gfx_stride = gfx->Mode->Info->PixelsPerScanLine; gfx_hw = (UINT32 *)(UINTN)gfx->Mode->FrameBufferBase;
+    VOID *buf = NULL;
+    if (!EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, gfx_stride * gfx_h * 4, &buf)) && buf) gfx_back = (UINT32 *)buf;
+    gfx_fb = gfx_back ? gfx_back : gfx_hw; gfx_active = 1;
+    ST->ConOut->EnableCursor(ST->ConOut, FALSE);
+    EFI_HANDLE disks[16]; UINT64 mb[16];
+    int n = ins_disk_count(disks, 16, mb); int sel = 0;
+    EFI_SIMPLE_POINTER_PROTOCOL *sp = NULL;
+    ST->BootServices->LocateProtocol(&sp_guid, NULL, (VOID **)&sp);
+    int mx = (int)gfx_w / 2, my = (int)gfx_h / 2;
+    ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
+    for (;;) {
+        EFI_INPUT_KEY k;
+        if (!EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) {
+            if (k.ScanCode == 0x01 && sel > 0) --sel;
+            else if (k.ScanCode == 0x02 && sel + 1 < n) ++sel;
+            else if (k.UnicodeChar == 27) break;
+            else if (k.UnicodeChar == '\r') { if (ins_load_core()) { gfx_active = 0; return; } }
+            ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
+        }
+        if (sp && sp->Mode) {
+            EFI_SIMPLE_POINTER_STATE st;
+            if (!EFI_IS_ERROR(sp->GetState(sp, &st))) {
+                mx += st.RelativeMovementX / 8; my += st.RelativeMovementY / 8;
+                if (mx < 0) mx = 0; if (my < 0) my = 0;
+                if (mx > (int)gfx_w - 1) mx = (int)gfx_w - 1; if (my > (int)gfx_h - 1) my = (int)gfx_h - 1;
+                if (st.LeftButton || st.RightButton) {
+                    for (int i = 0; i < n; ++i) if (mx > 112 && mx < 892 && my > 186 + i * 52 && my < 230 + i * 52) sel = i;
+                    if (my > (int)gfx_h - 200 - 92 + 90 && my < (int)gfx_h - 200 - 92 + 134) {
+                        if (mx > (int)gfx_h * 0 + 112 + 40 && mx < 112 + 172) { if (ins_load_core()) { gfx_active = 0; return; } }
+                        else if (mx > 112 + 190 && mx < 112 + 340) break;
+                    }
+                }
+            }
+        }
+        ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
+        for (int ry = 0; ry < 14; ++ry) {
+            int wdt = ry < 8 ? ry + 1 : (ry < 11 ? 14 - ry : 3);
+            gfx_fill(mx, my + ry, wdt, 1, gfx_rgb(20, 20, 20));
+            if (wdt > 2) gfx_fill(mx + 1, my + ry, wdt - 2, 1, gfx_rgb(255, 255, 255));
+        }
+        gfx_present();
+        ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
+    }
+    gfx_active = 0;
+    if (gfx_back) { ST->BootServices->FreePool(gfx_back); gfx_back = NULL; }
+}
 static void cmd_gui(void) {
     if (EFI_IS_ERROR(ST->BootServices->LocateProtocol(&gop_guid, NULL, (VOID **)&gfx))) return;
     gfx_w = gfx->Mode->Info->HorizontalResolution; 

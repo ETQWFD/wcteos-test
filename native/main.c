@@ -3216,6 +3216,7 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"color")) cmd_color(args);
     else if (weq(command, L"tty")) cmd_tty();
     else if (weq(command, L"gui")) cmd_gui();
+    else if (weq(command, L"installer")) cmd_installer();
     else if (weq(command, L"store")) cmd_store(args);
     else if (weq(command, L"bug") || weq(command, L"bsod")) cmd_bsod();
     else if (weq(command, L"exitgui")) cmd_exitgui();
