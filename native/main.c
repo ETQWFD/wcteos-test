@@ -214,6 +214,7 @@ static UINTN wlen(const CHAR16 *s)
     return n;
 }
 
+
 static int weq(const CHAR16 *a, const CHAR16 *b)
 {
     while (*a && *b) {
@@ -799,9 +800,10 @@ static void path_for(CHAR16 *outbuf, UINTN cap, const CHAR16 *arg)
         return;
     }
     if (arg[0] == L'\\' || arg[0] == L'/') {
-        for (UINTN i = 0; arg[i] && i + 1 < cap; ++i)
+        UINTN i = 0;
+        for (; arg[i] && i + 1 < cap; ++i)
             outbuf[i] = (arg[i] == L'/') ? L'\\' : arg[i];
-        outbuf[wlen(outbuf)] = 0;
+        outbuf[i] = 0;
         return;
     }
     wcopy(outbuf, cap, CWD);
@@ -2953,6 +2955,8 @@ static void cmd_api(CHAR16 *args)
 }
 
 #include "gui.inc"
+#include "jvm_wct.inc"
+#include "wcde.inc"
 
 static void print_banner(void)
 {
@@ -3156,7 +3160,21 @@ static void st_install(CHAR16 *name) {
     while (pre[k]) { dst[k] = pre[k]; ++k; }
     for (j = 0; name[j] && k < 250; ++j) dst[k++] = name[j];
     dst[k] = 0;
-    out_ascii(st_copy(src, dst) ? "installed\r\n" : "install failed\r\n");
+    int is_wcde = 0;
+    {
+        CHAR16 *q = src; UINTN len = wlen(src);
+        if (len >= 5) {
+            CHAR16 *e = src + len - 5;
+            if ((e[0] == L'.' || e[0] == L'.') && (e[1] == L'w' || e[1] == L'W') && e[2] == L'c' && e[3] == L'd' && e[4] == L'e') is_wcde = 1;
+        }
+        (void)q;
+    }
+    if (is_wcde) {
+        if (wcde_install(src)) out_ascii("installed (wcde)\r\n");
+        else out_ascii("wcde install failed\r\n");
+    } else {
+        out_ascii(st_copy(src, dst) ? "installed\r\n" : "install failed\r\n");
+    }
 }
 static void st_remove(CHAR16 *name) {
     while (*name == ' ') ++name;
@@ -3176,6 +3194,33 @@ static void cmd_store(CHAR16 *args) {
     if (weq_n(args, L"install ", 8)) st_install(args + 8);
     else if (weq_n(args, L"remove ", 7)) st_remove(args + 7);
     else out_ascii("usage: store | store install <file> | store remove <file>\r\n");
+}
+
+static void cmd_probe(CHAR16 *args)
+{
+    CHAR16 p[256];
+    path_for(p, 256, args);
+    out(L"path="); outln(p);
+    out(L"ROOT="); out_int((UINT64)(UINTN)ROOT); outln(L"");
+    if (!ROOT) { outln(L"no ROOT"); return; }
+    EFI_FILE_PROTOCOL *f = NULL;
+    EFI_STATUS st = ROOT->Open(ROOT, &f, p, 1, 0);
+    out(L"status=0x"); out_int((UINT64)st); outln(L"");
+    if (!EFI_IS_ERROR(st) && f) {
+        EFI_FILE_INFO *info = NULL;
+        static UINT8 buf[512];
+        UINTN sz = 0;
+        EFI_GUID gi = { 0x09576E92, 0x6D3F, 0x11D2, { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
+        if (!EFI_IS_ERROR(f->GetInfo(f, &gi, &sz, NULL))) {
+            sz = sizeof(buf);
+            if (!EFI_IS_ERROR(f->GetInfo(f, &gi, &sz, buf))) {
+                info = (EFI_FILE_INFO *)buf;
+                out(L"size="); out_int(info->FileSize); outln(L"");
+                out(L"name="); outln(info->FileName);
+            }
+        }
+        f->Close(f);
+    }
 }
 
 static void process_command(CHAR16 *line)
@@ -3216,8 +3261,31 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"color")) cmd_color(args);
     else if (weq(command, L"tty")) cmd_tty();
     else if (weq(command, L"gui")) cmd_gui();
+    else if (weq(command, L"disk-info")) {
+        EFI_HANDLE d[16]; UINT64 m2[16]; int n2 = ins_disk_count(d, 16, m2);
+        ST->ConOut->OutputString(ST->ConOut, L"disk-info\r\n");
+        ST->ConOut->OutputString(ST->ConOut, n2 ? L"  disks: found\r\n" : L"  disks: none\r\n");
+    }
+    else if (weq(command, L"format-disk")) {
+        EFI_HANDLE d[16]; UINT64 m2[16]; int n2 = ins_disk_count(d, 16, m2); int p2 = 0;
+        ST->ConOut->OutputString(ST->ConOut, (n2 && ins_format_disk(0, d, m2, &p2)) ? L"format-disk: OK\r\n" : L"format-disk: FAIL\r\n");
+    }
+    else if (weq(command, L"install-files")) {
+        EFI_HANDLE d[16]; UINT64 m2[16]; ins_disk_count(d, 16, m2);
+        int p2 = 0;
+        if (fs_install_files(&p2)) {
+            int r = 0; (void)d; /* boot entry left to UEFI ESP autoscan */
+            ST->ConOut->OutputString(ST->ConOut, r ? L"install-files: OK (NVRAM boot entry)\r\n" : L"install-files: OK\r\n");
+        } else {
+            ST->ConOut->OutputString(ST->ConOut, L"install-files: FAIL\r\n");
+        }
+    }
     else if (weq(command, L"installer")) cmd_installer();
     else if (weq(command, L"store")) cmd_store(args);
+    else if (weq(command, L"gstore")) cmd_gstore();
+    else if (weq(command, L"java")) cmd_java(args);
+    else if (weq(command, L"probe")) cmd_probe(args);
+    else if (weq(command, L"wcde")) cmd_wcde(args);
     else if (weq(command, L"bug") || weq(command, L"bsod")) cmd_bsod();
     else if (weq(command, L"exitgui")) cmd_exitgui();
     else if (weq(command, L"clear")) cmd_clear();

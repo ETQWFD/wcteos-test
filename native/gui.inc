@@ -640,6 +640,7 @@ static int ins_disk_count(EFI_HANDLE *out, int max, UINT64 *mb) {
     if (buf) ST->BootServices->FreePool(buf);
     return k;
 }
+static const char *g_build_str = "BUILD=" BUILD_HASH;
 static void ins_ui(int sel, int n, UINT64 *mb, int hot, const char *status) {
     UINT32 bg = gfx_rgb(9, 30, 60), card = gfx_rgb(245, 248, 252), line = gfx_rgb(210, 222, 238);
     gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, bg);
@@ -650,6 +651,7 @@ static void ins_ui(int sel, int n, UINT64 *mb, int hot, const char *status) {
     gfx_text_w(cx + 22, cy + 12, L"wcteos 安装程序", gfx_rgb(255, 255, 255));
     gfx_text(cx + cw - 34, cy + 12, "X", gfx_rgb(220, 235, 250));
     gfx_text(cx + 22, cy + 66, "Select target disk", gfx_rgb(40, 60, 90));
+    gfx_text(cx + cw - 150, cy + 66, (char *)g_build_str, gfx_rgb(90, 110, 140));
     for (int i = 0; i < n; ++i) {
         int y = cy + 96 + i * 52;
         int on = (i == sel);
@@ -695,10 +697,15 @@ static void ins_progress(const char *label, int pct) {
 typedef EFI_STATUS (*INS_WR)(void *, UINT32, UINT64, UINTN, void *);
 static void *ins_bio;
 static void *ins_med;
+static UINT64 ins_last_err;
 static int ins_write(void *b, void *m, UINT64 lba, UINTN cnt, void *buf) {
     INS_WR wr = *(INS_WR *)((UINT8 *)b + 32);
-    return (int)wr(b, *(UINT32 *)m, lba, cnt * 512, buf);
+    EFI_STATUS st = wr(b, *(UINT32 *)m, lba, cnt * 512, buf);
+    ins_last_err = (UINT64)st;
+    return (int)st;
 }
+static UINT64 fs_err;
+static void *fs_b; static void *fs_m; static UINT64 fs_part; static UINT32 fs_fatsz; static EFI_HANDLE fs_dh;
 static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
     void *b = NULL, *m = NULL;
     if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(disks[idx], &bio_guid, &b)) || !b) return 0;
@@ -710,11 +717,12 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
     UINT8 sec[512];
     for (int i = 0; i < 512; ++i) sec[i] = 0;
     UINT64 pstart = 2048, psec = total - pstart;
-    sec[446] = 0x00; sec[450] = 0x0C;
+    sec[446] = 0x00; sec[450] = 0xEF;
     *(UINT32 *)(sec + 454) = (UINT32)pstart;
     *(UINT32 *)(sec + 458) = (UINT32)psec;
     sec[510] = 0x55; sec[511] = 0xAA;
-    if (!ins_write(b, m, 0, 1, sec)) return 0;
+    if (ins_write(b, m, 0, 1, sec) != 0) return 0;
+    { void (*fl)(void *) = *(void (**)(void *))((UINT8 *)b + 40); if (fl) fl(b); }
     *pct = 30; ins_progress("Formatting disk...", *pct);
     for (int i = 0; i < 512; ++i) sec[i] = 0;
     sec[0] = 0xEB; sec[1] = 0x58; sec[2] = 0x90; sec[3] = 'W'; sec[4] = 'C'; sec[5] = 'T'; sec[6] = 'E'; sec[7] = 'O'; sec[8] = 'S'; sec[9] = ' '; sec[10] = ' ';
@@ -730,26 +738,180 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
     const char *lab = "WCTEOS     "; for (int i = 0; i < 11; ++i) sec[71 + i] = lab[i];
     const char *fs = "FAT32   "; for (int i = 0; i < 8; ++i) sec[82 + i] = fs[i];
     sec[510] = 0x55; sec[511] = 0xAA;
-    if (!ins_write(b, m, pstart, 1, sec)) return 0;
-    if (!ins_write(b, m, pstart + 6, 1, sec)) return 0;
+    if (ins_write(b, m, pstart, 1, sec) != 0) return 0;
+    if (ins_write(b, m, pstart + 6, 1, sec) != 0) return 0;
     *pct = 60; ins_progress("Formatting disk...", *pct);
     for (int i = 0; i < 512; ++i) sec[i] = 0;
     *(UINT32 *)(sec + 0) = 0x41615252;
     *(UINT32 *)(sec + 484) = 0x61417272;
+    *(UINT32 *)(sec + 488) = 0x61417272;
     UINT32 clus = (UINT32)((psec - 32 - 2ULL * fatsz) / 1);
-    *(UINT32 *)(sec + 488) = clus;
-    *(UINT32 *)(sec + 492) = 3;
+    *(UINT32 *)(sec + 492) = clus - 1;
+    *(UINT32 *)(sec + 496) = 3;
     *(UINT32 *)(sec + 508) = 0xAA550000;
-    if (!ins_write(b, m, pstart + 1, 1, sec)) return 0;
+    if (ins_write(b, m, pstart + 1, 1, sec) != 0) return 0;
     for (int i = 0; i < 512; ++i) sec[i] = 0;
-    *(UINT32 *)(sec + 0) = 0x0FFFFFF8; *(UINT32 *)(sec + 4) = 0x0FFFFFFF;
-    for (int f = 0; f < 2; ++f) if (!ins_write(b, m, pstart + 32 + (UINT64)f * fatsz, 1, sec)) return 0;
+    *(UINT32 *)(sec + 0) = 0x0FFFFFF8; *(UINT32 *)(sec + 4) = 0x0FFFFFFF; *(UINT32 *)(sec + 8) = 0x0FFFFFFF;
+    for (int f = 0; f < 2; ++f) if (ins_write(b, m, pstart + 32 + (UINT64)f * fatsz, 1, sec) != 0) return 0;
     for (int i = 0; i < 512; ++i) sec[i] = 0;
+    const char *vl = "WCTEOS     "; for (int i = 0; i < 11; ++i) sec[i] = vl[i]; sec[11] = 0x08;
     UINT64 root = pstart + 32 + 2ULL * fatsz;
-    if (!ins_write(b, m, root, 1, sec)) return 0;
+    if (ins_write(b, m, root, 1, sec) != 0) return 0;
     *pct = 90; ins_progress("Verifying...", *pct);
-    ins_bio = b; ins_med = m;
+    ins_bio = b; ins_med = m; fs_dh = disks[idx];
+    fs_b = b; fs_m = m; fs_part = pstart; fs_fatsz = fatsz;
     return 1;
+}
+
+
+static UINT64 fs_lba(UINT32 c) { return fs_part + 32ull + 2ull * fs_fatsz + (c - 2); }
+static int fs_rd(UINT64 lba, void *buf) { EFI_STATUS(*rd)(void*, UINT32, UINT64, UINTN, void*) = *(void**)((UINT8*)fs_b + 24); return (int)rd(fs_b, *(UINT32*)fs_m, lba, 512, buf); }
+static int fs_wr(UINT64 lba, void *buf) { return ins_write(fs_b, fs_m, lba, 1, buf); }
+static int fs_fat(UINT32 c, UINT32 val) {
+    UINT8 sec[512];
+    UINT32 off = c / 128, idx = c % 128;
+    for (int f = 0; f < 2; ++f) {
+        UINT64 lba = fs_part + 32ull + (UINT64)f * fs_fatsz + off;
+        if (fs_rd(lba, sec) != 0) return 0;
+        *(UINT32 *)(sec + idx * 4) = val;
+        if (fs_wr(lba, sec) != 0) return 0;
+    }
+    return 1;
+}
+static void fs_dirent(UINT8 *e, const char *n, UINT8 attr, UINT32 clus, UINT32 size) {
+    for (int i = 0; i < 32; ++i) e[i] = 0;
+    for (int i = 0; i < 11; ++i) e[i] = ' ';
+    if (n[0] == '.' && n[1] == 0) { e[0] = '.'; }
+    else if (n[0] == '.' && n[1] == '.' && n[2] == 0) { e[0] = '.'; e[1] = '.'; }
+    else {
+        int k = 0;
+        while (*n && *n != '.' && k < 8) e[k++] = (UINT8)*n++;
+        if (*n == '.') ++n;
+        k = 8;
+        while (*n && k < 11) e[k++] = (UINT8)*n++;
+    }
+    e[11] = attr;
+    *(UINT16 *)(e + 20) = (UINT16)(clus >> 16);
+    *(UINT16 *)(e + 26) = (UINT16)(clus & 0xFFFF);
+    *(UINT32 *)(e + 28) = size;
+}
+static int fs_mkdir(UINT32 self, UINT32 parent, const char *name, UINT32 child) {
+    UINT8 sec[512];
+    for (int i = 0; i < 512; ++i) sec[i] = 0;
+    fs_dirent(sec, ".", 0x10, self, 0);
+    fs_dirent(sec + 32, "..", 0x10, parent == 2 ? 0 : parent, 0);
+    fs_dirent(sec + 64, name, 0x10, child, 0);
+    return fs_wr(fs_lba(self), sec);
+}
+static int fs_stage;
+static int ins_copy_pkgs(EFI_FILE_PROTOCOL *dstroot);
+static int fs_install_files(int *pct) {
+    if (!fs_dh || !ROOT) return 0;
+    typedef EFI_STATUS (EFIAPI *DISC)(EFI_HANDLE, EFI_HANDLE, EFI_HANDLE);
+    typedef EFI_STATUS (EFIAPI *CONN)(EFI_HANDLE, EFI_HANDLE *, VOID *, BOOLEAN);
+    ((DISC)ST->BootServices->DisconnectController)(fs_dh, NULL, NULL);
+    ((CONN)ST->BootServices->ConnectController)(fs_dh, NULL, NULL, 1);
+    ST->BootServices->Stall(500000);
+    fs_stage = 1;
+    EFI_HANDLE *hs = NULL; UINTN nh = 0;
+    if (EFI_IS_ERROR(ST->BootServices->LocateHandleBuffer(2, &simple_fs_guid, NULL, &nh, &hs))) return 0;
+    fs_stage = 2;
+    EFI_FILE_PROTOCOL *root = NULL;
+    for (UINTN i = 0; i < nh && !root; ++i) {
+        EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *vfs = NULL;
+        if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(hs[i], &simple_fs_guid, (VOID **)&vfs)) || !vfs) continue;
+        EFI_FILE_PROTOCOL *r2 = NULL;
+        if (EFI_IS_ERROR(vfs->OpenVolume(vfs, &r2)) || !r2) continue;
+        if (r2 == ROOT) { continue; }
+        EFI_FILE_PROTOCOL *probe = NULL;
+        if (EFI_IS_ERROR(r2->Open(r2, &probe, L"EFI", 1, 0)) || !probe) { root = r2; }
+        else { probe->Close(probe); r2->Close(r2); }
+    }
+    if (hs) ST->BootServices->FreePool(hs);
+    fs_stage = 3;
+    if (!root) return 0;
+    EFI_FILE_PROTOCOL *sf = NULL;
+    if (EFI_IS_ERROR(ROOT->Open(ROOT, &sf, L"EFI\\BOOT\\BOOTX64.EFI", 1, 0)) || !sf) { fs_stage = 4; return 0; }
+    fs_stage = 5;
+    EFI_FILE_PROTOCOL *de = NULL, *db = NULL, *df = NULL;
+    UINT64 mode = EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE;
+    if (EFI_IS_ERROR(root->Open(root, &de, L"EFI", mode, EFI_FILE_DIRECTORY)) || !de) { fs_stage = 6; root->Close(root); return 0; }
+    fs_stage = 7;
+    if (EFI_IS_ERROR(de->Open(de, &db, L"BOOT", mode, EFI_FILE_DIRECTORY)) || !db) { fs_stage = 8; return 0; }
+    fs_stage = 9;
+    if (EFI_IS_ERROR(db->Open(db, &df, L"BOOTX64.EFI", mode, 0x20)) || !df) { fs_stage = 10; return 0; }
+    fs_stage = 11;
+    UINT64 real = 0; UINT32 tick = 0;
+    for (;;) {
+        UINT8 buf[512]; UINTN n = 512;
+        for (int i = 0; i < 512; ++i) buf[i] = 0;
+        EFI_STATUS rs = sf->Read(sf, &n, buf);
+        if (EFI_IS_ERROR(rs) || n == 0) break;
+        UINTN w = n;
+        if (EFI_IS_ERROR(df->Write(df, &w, buf)) || w != n) { fs_stage = 12; return 0; }
+        real += n;
+        if (++tick >= 128) {
+            tick = 0;
+            *pct = 30 + (int)((real * 50) / 200000); if (*pct > 85) *pct = 85;
+            ins_progress("Installing system files...", *pct);
+        }
+    }
+    fs_stage = 13;
+    if (!real) return 0;
+    df->Flush(df); df->Close(df); db->Close(db); de->Close(de);
+    ins_copy_pkgs(root);
+    root->Close(root); sf->Close(sf);
+    ST->BootServices->Stall(300000);
+    return 1;
+}
+
+
+/* 把安装介质 \wct\pkgs 下的所有包复制到目标盘同名目录 */
+static int ins_copy_pkgs(EFI_FILE_PROTOCOL *dstroot) {
+    EFI_FILE_PROTOCOL *src = NULL;
+    if (EFI_IS_ERROR(ROOT->Open(ROOT, &src, L"wct", 1, 0)) || !src) return 0;
+    EFI_FILE_PROTOCOL *srcp = NULL;
+    int ok = 0;
+    if (!EFI_IS_ERROR(src->Open(src, &srcp, L"pkgs", 1, 0)) && srcp) {
+        EFI_FILE_PROTOCOL *dw = NULL, *dwp = NULL;
+        UINT64 mode = EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE;
+        dstroot->Open(dstroot, &dw, L"wct", mode, EFI_FILE_DIRECTORY);
+        if (dw) {
+            dw->Open(dw, &dwp, L"pkgs", mode, EFI_FILE_DIRECTORY);
+            if (dwp) {
+                static UINT8 info[2048];
+                UINTN sz;
+                EFI_GUID gi = { 0x09576E92, 0x6D3F, 0x11D2, { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
+                srcp->SetPosition(srcp, 0);
+                for (;;) {
+                    sz = sizeof(info);
+                    if (EFI_IS_ERROR(srcp->Read(srcp, &sz, info)) || sz == 0) break;
+                    EFI_FILE_INFO *fi = (EFI_FILE_INFO *)info;
+                    if (fi->FileName[0] == L'.') continue;
+                    if (fi->Attribute & EFI_FILE_DIRECTORY) continue;
+                    EFI_FILE_PROTOCOL *sf = NULL, *df = NULL;
+                    if (EFI_IS_ERROR(srcp->Open(srcp, &sf, fi->FileName, 1, 0)) || !sf) continue;
+                    if (!EFI_IS_ERROR(dwp->Open(dwp, &df, fi->FileName, mode, 0x20)) && df) {
+                        static UINT8 buf[4096];
+                        for (;;) {
+                            UINTN n = sizeof(buf);
+                            if (EFI_IS_ERROR(sf->Read(sf, &n, buf)) || n == 0) break;
+                            UINTN w = n;
+                            if (EFI_IS_ERROR(df->Write(df, &w, buf))) break;
+                        }
+                        df->Flush(df); df->Close(df);
+                        ok = 1;
+                    }
+                    sf->Close(sf);
+                }
+                dwp->Close(dwp);
+            }
+            dw->Close(dw);
+        }
+        srcp->Close(srcp);
+    }
+    src->Close(src);
+    return ok;
 }
 
 static int ins_load_core(void) {
@@ -775,6 +937,103 @@ static int ins_load_core(void) {
     ST->BootServices->StartImage(ih, NULL, NULL);
     return 1;
 }
+static char ins_stat[48] = "Mouse or arrow keys. Enter installs.";
+
+static void ins_chain_test(char *out) {
+    EFI_STATUS s1 = 0xAA, s2 = 0xAA, s3 = 0xAA, s4 = 0xAA;
+    UINT8 head[2] = { 0, 0 }; UINTN got = 0;
+    EFI_FILE_PROTOCOL *r = ROOT, *d1 = NULL, *d2 = NULL, *f = NULL;
+    if (!r) { s1 = 0xEE; goto done; }
+    s1 = r->Open(r, &d1, L"EFI", 1, 0);
+    if (EFI_IS_ERROR(s1) || !d1) goto done;
+    s2 = d1->Open(d1, &d2, L"BOOT", 1, 0);
+    if (EFI_IS_ERROR(s2) || !d2) goto done;
+    s3 = d2->Open(d2, &f, L"BOOTX64.EFI", 1, 0);
+    if (EFI_IS_ERROR(s3) || !f) goto done;
+    got = 2; s4 = f->Read(f, &got, head);
+done:
+    { int q = 0; out[q++] = 'A'; out[q++] = '=';
+    out[q++] = (char)('0' + (s1 & 15)); out[q++] = ' ';
+    out[q++] = 'B'; out[q++] = '=';
+    out[q++] = (char)('0' + (s2 & 15)); out[q++] = ' ';
+    out[q++] = 'C'; out[q++] = '=';
+    out[q++] = (char)('0' + (s3 & 15)); out[q++] = ' ';
+    out[q++] = 'D'; out[q++] = '=';
+    out[q++] = (char)('0' + (s4 & 15)); out[q++] = ' ';
+    out[q++] = 'G'; out[q++] = '=';
+    out[q++] = (char)('0' + (got % 10)); out[q++] = ' ';
+    out[q++] = 'M'; out[q++] = '=';
+    out[q++] = head[0] == 0x4D && head[1] == 0x5A ? '1' : '0';
+    out[q] = 0; }
+}
+
+static EFI_GUID nv_guid = { 0x8BE4DF61, 0x93CA, 0x11d2, { 0xAA, 0x0D, 0x00, 0xE0, 0x98, 0x03, 0x2B, 0x8C } };
+static int ins_register_boot(EFI_HANDLE dh) {
+    if (!ST->RuntimeServices || !ST->RuntimeServices->SetVariable) return 0;
+    if (dh) {
+        typedef EFI_STATUS (EFIAPI *DISC)(EFI_HANDLE, EFI_HANDLE, EFI_HANDLE);
+        typedef EFI_STATUS (EFIAPI *CONN)(EFI_HANDLE, EFI_HANDLE *, VOID *, BOOLEAN);
+        ((DISC)ST->BootServices->DisconnectController)(dh, NULL, NULL);
+        ((CONN)ST->BootServices->ConnectController)(dh, NULL, NULL, 1);
+        ST->BootServices->Stall(300000);
+    }
+    EFI_HANDLE *hs = NULL; UINTN nh = 0;
+    if (EFI_IS_ERROR(ST->BootServices->LocateHandleBuffer(2, &simple_fs_guid, NULL, &nh, &hs))) return 0;
+    static UINT8 path[640]; UINTN u = 0; int found = 0;
+    for (UINTN hi = 0; hi < nh && !found; ++hi) {
+        EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs = NULL, *vf = NULL;
+        if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(hs[hi], &simple_fs_guid, (VOID **)&vf)) || !vf) continue;
+        fs = vf;
+        EFI_FILE_PROTOCOL *root = NULL, *f = NULL;
+        if (EFI_IS_ERROR(fs->OpenVolume(fs, &root)) || !root) continue;
+        if (root == ROOT) continue;
+        if (EFI_IS_ERROR(root->Open(root, &f, L"EFI\\BOOT\\BOOTX64.EFI", 1, 0)) || !f) continue;
+        f->Close(f);
+        EFI_DEVICE_PATH_PROTOCOL *dp = NULL;
+        if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(hs[hi], &device_path_guid, (VOID **)&dp)) || !dp) continue;
+        UINT8 *pp = (UINT8 *)dp; UINTN k = 0; int iscd = 0;
+        while (k < 520 && !(pp[0] == 0x7F && pp[1] == 0xFF)) {
+            UINT16 l = (UINT16)(pp[2] | (pp[3] << 8));
+            if (!l || l > 160 || k + l > 520) break;
+            if (pp[0] == 0x04 && pp[1] == 0x02) iscd = 1;
+            for (UINT16 i = 0; i < l; ++i) path[k + i] = pp[i];
+            k += l; pp += l;
+        }
+        if (k < 4 || iscd) continue;
+        const CHAR16 *fp16 = L"\\EFI\\BOOT\\BOOTX64.EFI";
+        UINTN q = 0; while (fp16[q]) ++q;
+        UINTN fl = 4 + (q + 1) * 2;
+        if (k + fl + 4 > sizeof(path)) continue;
+        path[k] = 0x04; path[k + 1] = 0x04; path[k + 2] = (UINT8)fl; path[k + 3] = (UINT8)(fl >> 8);
+        for (UINTN i = 0; i <= q; ++i) { path[k + 4 + i * 2] = (UINT8)fp16[i]; path[k + 5 + i * 2] = 0; }
+        k += fl;
+        path[k] = 0x7F; path[k + 1] = 0xFF; path[k + 2] = 0x04; path[k + 3] = 0x00; k += 4;
+        u = k; found = 1;
+    }
+    if (hs) ST->BootServices->FreePool(hs);
+    if (!found) return 0;
+    typedef EFI_STATUS (EFIAPI *NVSET)(CHAR16 *, EFI_GUID *, UINT32, UINTN, VOID *);
+    typedef EFI_STATUS (EFIAPI *NVGET)(CHAR16 *, EFI_GUID *, UINT32 *, UINTN *, VOID *);
+    NVSET setv = (NVSET)ST->RuntimeServices->SetVariable;
+    NVGET getv = (NVGET)ST->RuntimeServices->GetVariable;
+    static UINT8 opt[700]; UINTN o = 6;
+    opt[0] = 1; opt[1] = 0; opt[2] = 0; opt[3] = 0;
+    opt[4] = (UINT8)u; opt[5] = (UINT8)(u >> 8);
+    const CHAR16 *desc = L"wcteos Pro";
+    for (int i = 0; i <= 11; ++i) { opt[o++] = (UINT8)desc[i]; opt[o++] = 0; }
+    for (UINTN i = 0; i < u; ++i) opt[o++] = path[i];
+    if (EFI_IS_ERROR(setv(L"Boot0000", &nv_guid, 7, o, opt))) return 0;
+    UINT16 bo[64]; UINTN bsz = sizeof(bo); UINT32 at = 7;
+    EFI_STATUS gs = getv ? getv(L"BootOrder", &nv_guid, &at, &bsz, bo) : 1;
+    if (EFI_IS_ERROR(gs) || bsz < 2 || bsz > 120) { bo[0] = 0; bsz = 2; }
+    else if (bo[0] != 0) {
+        for (UINTN i = bsz / 2; i > 0; --i) bo[i] = bo[i - 1];
+        bo[0] = 0; bsz += 2;
+    }
+    setv(L"BootOrder", &nv_guid, 7, bsz, bo);
+    return 1;
+}
+
 static void cmd_installer(void) {
     if (EFI_IS_ERROR(ST->BootServices->LocateProtocol(&gop_guid, NULL, (VOID **)&gfx))) return;
     gfx_w = gfx->Mode->Info->HorizontalResolution; gfx_h = gfx->Mode->Info->VerticalResolution;
@@ -783,24 +1042,95 @@ static void cmd_installer(void) {
     if (!EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, gfx_stride * gfx_h * 4, &buf)) && buf) gfx_back = (UINT32 *)buf;
     gfx_fb = gfx_back ? gfx_back : gfx_hw; gfx_active = 1;
     ST->ConOut->EnableCursor(ST->ConOut, FALSE);
+    int msel = 0;
+    for (;;) {
+        gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(12, 30, 64));
+        gfx_text(60, 70, "wcteos Pro Setup", gfx_rgb(255, 255, 255));
+        gfx_text(60, 110, "Up/Down to select, Enter to continue, Esc to quit.", gfx_rgb(200, 210, 230));
+        for (int i = 0; i < 2; ++i) {
+            int y = 200 + i * 64;
+            gfx_fill(60, y, (int)gfx_w - 120, 48, msel == i ? gfx_rgb(40, 110, 200) : gfx_rgb(24, 48, 90));
+            gfx_border(60, y, (int)gfx_w - 120, 48, msel == i ? gfx_rgb(255, 255, 255) : gfx_rgb(60, 90, 140));
+            gfx_text(80, y + 16, i == 0 ? "1. Graphical setup (recommended)" : "2. Command-line setup", gfx_rgb(255, 255, 255));
+        }
+        gfx_text(60, (int)gfx_h - 40, "BUILD=" BUILD_HASH, gfx_rgb(120, 140, 170));
+        gfx_present();
+        EFI_INPUT_KEY k;
+        while (EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) ST->BootServices->Stall(30000);
+        if (k.UnicodeChar == 27) { gfx_active = 0; return; }
+        if (k.ScanCode == 0x01) msel = 0;
+        else if (k.ScanCode == 0x02) msel = 1;
+        else if (k.UnicodeChar == '\r' || k.UnicodeChar == '\n' || k.ScanCode == 0x0D) {
+            if (msel == 1) {
+                gfx_active = 0; ST->ConOut->EnableCursor(ST->ConOut, TRUE);
+                ST->ConOut->OutputString(ST->ConOut, L"\r\nCommand-line setup\r\n  1) select disk: disk-info\r\n  2) format: format-disk <n>\r\n  3) install: install-files <n>\r\n");
+                return;
+            }
+            break;
+        }
+    }
+    for (;;) {
+        gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(245, 247, 250));
+        gfx_fill(0, 0, (int)gfx_w, 64, gfx_rgb(20, 60, 120));
+        gfx_text(40, 24, "Setup - License Agreement", gfx_rgb(255, 255, 255));
+        gfx_text(40, 110, "wcteos Pro 1.0 - evaluation and use terms", gfx_rgb(30, 40, 60));
+        gfx_text(40, 150, "1. This software is provided as-is, without warranty.", gfx_rgb(60, 70, 90));
+        gfx_text(40, 178, "2. Installing will erase the selected target disk.", gfx_rgb(60, 70, 90));
+        gfx_text(40, 206, "3. Back up your data before continuing.", gfx_rgb(60, 70, 90));
+        gfx_text(40, 260, "Press Enter to accept, Esc to exit.", gfx_rgb(20, 60, 120));
+        gfx_text(40, (int)gfx_h - 40, "BUILD=" BUILD_HASH, gfx_rgb(120, 130, 150));
+        gfx_present();
+        EFI_INPUT_KEY k2;
+        while (EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k2))) ST->BootServices->Stall(30000);
+        if (k2.UnicodeChar == 27) { gfx_active = 0; return; }
+        if (k2.UnicodeChar == '\r' || k2.UnicodeChar == '\n' || k2.ScanCode == 0x0D) break;
+    }
     EFI_HANDLE disks[16]; UINT64 mb[16];
     int n = ins_disk_count(disks, 16, mb); int sel = 0;
     EFI_SIMPLE_POINTER_PROTOCOL *sp = NULL;
     ST->BootServices->LocateProtocol(&sp_guid, NULL, (VOID **)&sp);
     int mx = (int)gfx_w / 2, my = (int)gfx_h / 2;
-    ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
+    ins_ui(sel, n, mb, 0, n ? ins_stat : "No target disk found.");
+    int page = 0;
     for (;;) {
         EFI_INPUT_KEY k;
+        if (page == 1) {
+            gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(245, 247, 250));
+            gfx_fill(0, 0, (int)gfx_w, 64, gfx_rgb(20, 60, 120));
+            gfx_text(40, 24, "Setup - Confirm", gfx_rgb(255, 255, 255));
+            gfx_text(40, 140, "All data on the selected disk will be erased.", gfx_rgb(180, 40, 40));
+            gfx_text(40, 180, "Enter = erase and install    Esc = back", gfx_rgb(20, 60, 120));
+            gfx_text(40, (int)gfx_h - 40, "BUILD=" BUILD_HASH, gfx_rgb(120, 130, 150));
+            gfx_present();
+            if (!EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) {
+                if (k.UnicodeChar == 27) { page = 0; }
+                else if (k.UnicodeChar == '\r' || k.UnicodeChar == '\n' || k.ScanCode == 0x0D) {
+                    int pct = 0;
+                    if (ins_format_disk(sel, disks, mb, &pct)) {
+                        if (fs_install_files(&pct)) {
+                            pct = 100;
+                            gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(245, 247, 250));
+                            gfx_fill(0, 0, (int)gfx_w, 64, gfx_rgb(20, 60, 120));
+                            gfx_text(40, 24, "Setup - Complete", gfx_rgb(255, 255, 255));
+                            gfx_text(40, 140, "Installation finished. Remove setup media and reboot.", gfx_rgb(30, 40, 60));
+                            /* NVRAM entry skipped: rely on UEFI ESP autoscan */
+                            gfx_present();
+                            ST->BootServices->Stall(3000000);
+                        } else { ins_progress("Copy failed.", pct); ST->BootServices->Stall(3000000); }
+                    } else { ins_progress("Format failed.", 0); ST->BootServices->Stall(3000000); }
+                    break;
+                }
+            }
+            continue;
+        }
         if (!EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) {
             if (k.ScanCode == 0x01 && sel > 0) --sel;
             else if (k.ScanCode == 0x02 && sel + 1 < n) ++sel;
             else if (k.UnicodeChar == 27) break;
-            else if (k.UnicodeChar == '\r') {
-                int pct = 0;
-                if (ins_format_disk(sel, disks, mb, &pct)) { *(&pct) = 100; ins_progress("Format complete. Ready to install.", 100); ST->BootServices->Stall(1200000); }
-                else { ins_progress("Format failed.", 0); ST->BootServices->Stall(1200000); }
+            else if (k.UnicodeChar == '\r' || k.UnicodeChar == '\n' || k.ScanCode == 0x0D) {
+                page = 1;
             }
-            ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
+            ins_ui(sel, n, mb, 0, n ? ins_stat : "No target disk found.");
         }
         if (sp && sp->Mode) {
             EFI_SIMPLE_POINTER_STATE st;
@@ -821,14 +1151,13 @@ static void cmd_installer(void) {
                 }
             }
         }
-        ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
+        ins_ui(sel, n, mb, 0, n ? ins_stat : "No target disk found.");
         for (int ry = 0; ry < 14; ++ry) {
             int wdt = ry < 8 ? ry + 1 : (ry < 11 ? 14 - ry : 3);
             gfx_fill(mx, my + ry, wdt, 1, gfx_rgb(20, 20, 20));
             if (wdt > 2) gfx_fill(mx + 1, my + ry, wdt - 2, 1, gfx_rgb(255, 255, 255));
         }
         gfx_present();
-        ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
     }
     gfx_active = 0;
     if (gfx_back) { ST->BootServices->FreePool(gfx_back); gfx_back = NULL; }
@@ -872,3 +1201,73 @@ static void cmd_gui(void) {
 }
 
 static void cmd_exitgui(void) { outln(L"exitgui: not in GUI (run gui first)"); }
+
+static int st_exists(const CHAR16 *path);
+static void st_install(CHAR16 *name);
+static void st_remove(CHAR16 *name);
+static void cmd_gstore(void) {
+    if (EFI_IS_ERROR(ST->BootServices->LocateProtocol(&gop_guid, NULL, (VOID **)&gfx))) return;
+    gfx_w = gfx->Mode->Info->HorizontalResolution; gfx_h = gfx->Mode->Info->VerticalResolution;
+    gfx_stride = gfx->Mode->Info->PixelsPerScanLine; gfx_hw = (UINT32 *)(UINTN)gfx->Mode->FrameBufferBase;
+    VOID *buf = NULL;
+    if (!EFI_IS_ERROR(ST->BootServices->AllocatePool(EFI_LOADER_DATA, gfx_stride * gfx_h * 4, &buf)) && buf) gfx_back = (UINT32 *)buf;
+    gfx_fb = gfx_back ? gfx_back : gfx_hw; gfx_active = 1;
+    ST->ConOut->EnableCursor(ST->ConOut, FALSE);
+    static char names[16][64]; int n = 0;
+    EFI_FILE_PROTOCOL *d = NULL;
+    if (open_path(L"\\wct\\pkgs", &d, EFI_FILE_MODE_READ, 0)) {
+        static UINT8 b2[2048];
+        while (n < 16) {
+            UINTN sz = sizeof(b2);
+            if (EFI_IS_ERROR(d->Read(d, &sz, b2)) || !sz) break;
+            EFI_FILE_INFO *fi = (EFI_FILE_INFO *)b2;
+            if (!fi->FileName[0]) break;
+            if (fi->FileName[0] == '.') continue;
+            int i = 0;
+            for (; fi->FileName[i] && i < 60; ++i) names[n][i] = (char)(fi->FileName[i] < 128 ? fi->FileName[i] : '?');
+            names[n][i] = 0; ++n;
+        }
+        d->Close(d);
+    }
+    int sel = 0;
+    for (;;) {
+        gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(245, 247, 250));
+        gfx_fill(0, 0, (int)gfx_w, 64, gfx_rgb(20, 60, 120));
+        gfx_text(40, 24, "wcteos Store", gfx_rgb(255, 255, 255));
+        gfx_text(40, 90, "Up/Down select   Enter install/remove   Esc quit", gfx_rgb(60, 70, 90));
+        if (!n) gfx_text(40, 150, "No packages found in \\wct\\pkgs", gfx_rgb(120, 60, 60));
+        for (int i = 0; i < n; ++i) {
+            int y = 140 + i * 40;
+            gfx_fill(40, y, (int)gfx_w - 80, 32, sel == i ? gfx_rgb(40, 110, 200) : gfx_rgb(230, 234, 240));
+            gfx_text(56, y + 8, names[i], sel == i ? gfx_rgb(255, 255, 255) : gfx_rgb(30, 40, 60));
+            CHAR16 tgt[256]; int k = 0;
+            const CHAR16 *pre = L"\\wct\\apps\\";
+            while (pre[k]) { tgt[k] = pre[k]; ++k; }
+            for (int j = 0; names[i][j] && k < 250; ++j) tgt[k++] = (CHAR16)names[i][j];
+            tgt[k] = 0;
+            gfx_text((int)gfx_w - 200, y + 8, st_exists(tgt) ? "[installed]" : "[available]",
+                     sel == i ? gfx_rgb(255, 255, 255) : gfx_rgb(80, 90, 110));
+        }
+        gfx_text(40, (int)gfx_h - 40, "BUILD=" BUILD_HASH, gfx_rgb(120, 130, 150));
+        gfx_present();
+        EFI_INPUT_KEY k;
+        while (EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) ST->BootServices->Stall(30000);
+        if (k.UnicodeChar == 27) break;
+        if (k.ScanCode == 0x01 && sel > 0) --sel;
+        else if (k.ScanCode == 0x02 && sel + 1 < n) ++sel;
+        else if ((k.UnicodeChar == '\r' || k.UnicodeChar == '\n' || k.ScanCode == 0x0D) && n) {
+            CHAR16 nm[80]; int q = 0;
+            for (; names[sel][q] && q < 78; ++q) nm[q] = (CHAR16)names[sel][q];
+            nm[q] = 0;
+            CHAR16 tgt[256]; int k2 = 0;
+            const CHAR16 *pre = L"\\wct\\apps\\";
+            while (pre[k2]) { tgt[k2] = pre[k2]; ++k2; }
+            for (int j = 0; nm[j] && k2 < 250; ++j) tgt[k2++] = nm[j];
+            tgt[k2] = 0;
+            if (st_exists(tgt)) st_remove(nm); else st_install(nm);
+        }
+    }
+    gfx_active = 0;
+    if (gfx_back) { ST->BootServices->FreePool(gfx_back); gfx_back = NULL; }
+}
+
