@@ -727,6 +727,7 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
         for (UINTN i = 0; i < sizeof(mbr_hint) && i < 446; ++i) sec[i] = mbr_hint[i];
     }
     UINT64 pstart = 2048, psec = total - pstart;
+    if (psec > 1049599) { outln(L"format-disk: disk too large (max 512MB supported)"); return 0; }
     sec[446] = 0x00; sec[450] = 0xEF;
     *(UINT32 *)(sec + 454) = (UINT32)pstart;
     *(UINT32 *)(sec + 458) = (UINT32)psec;
@@ -1169,7 +1170,10 @@ static void cmd_installer(void) {
         }
         gfx_present();
     }
+    gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(0, 0, 0));
+    gfx_present();
     gfx_active = 0;
+    ST->ConOut->ClearScreen(ST->ConOut);
     if (gfx_back) { ST->BootServices->FreePool(gfx_back); gfx_back = NULL; }
 }
 static void cmd_gui(void) {
@@ -1255,14 +1259,27 @@ static void cmd_gstore(void) {
             while (pre[k]) { tgt[k] = pre[k]; ++k; }
             for (int j = 0; names[i][j] && k < 250; ++j) tgt[k++] = (CHAR16)names[i][j];
             tgt[k] = 0;
-            gfx_text((int)gfx_w - 200, y + 8, st_exists(tgt) ? "[installed]" : "[available]",
+            int is_w = 0;
+            {
+                int L = 0; while (names[i][L]) ++L;
+                if (L >= 5 && names[i][L-5]=='.' && (names[i][L-4]=='w'||names[i][L-4]=='W')
+                    && names[i][L-3]=='c' && names[i][L-2]=='d' && names[i][L-1]=='e') is_w = 1;
+            }
+            EFI_FILE_PROTOCOL *probe_f = NULL;
+            int inst = 0;
+            if (is_w) {
+                if (open_path(L"\\wct\\java", &probe_f, EFI_FILE_MODE_READ, 0)) { probe_f->Close(probe_f); inst = 1; }
+            } else {
+                inst = st_exists(tgt);
+            }
+            gfx_text((int)gfx_w - 200, y + 8, inst ? "[installed]" : "[available]",
                      sel == i ? gfx_rgb(255, 255, 255) : gfx_rgb(80, 90, 110));
         }
         gfx_text(40, (int)gfx_h - 40, "BUILD=" BUILD_HASH, gfx_rgb(120, 130, 150));
         gfx_present();
         EFI_INPUT_KEY k;
         while (EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) ST->BootServices->Stall(30000);
-        if (k.UnicodeChar == 27) break;
+        if (k.UnicodeChar == 27 || k.ScanCode == 0x17) break;
         if (k.ScanCode == 0x01 && sel > 0) --sel;
         else if (k.ScanCode == 0x02 && sel + 1 < n) ++sel;
         else if ((k.UnicodeChar == '\r' || k.UnicodeChar == '\n' || k.ScanCode == 0x0D) && n) {
@@ -1277,7 +1294,11 @@ static void cmd_gstore(void) {
             if (st_exists(tgt)) st_remove(nm); else st_install(nm);
         }
     }
+    gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(0, 0, 0));
+    gfx_present();
     gfx_active = 0;
+    ST->ConOut->ClearScreen(ST->ConOut);
+    ST->ConOut->SetMode(ST->ConOut, ST->ConOut->Mode->Mode);
     if (gfx_back) { ST->BootServices->FreePool(gfx_back); gfx_back = NULL; }
 }
 

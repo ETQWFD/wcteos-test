@@ -71,3 +71,14 @@ Demo.class	4123
 ```
 
 打包工具：`pack-wcde.py <源目录> <输出.wcde> name=... version=... root=...`
+
+## 图形商店
+
+终端输入 `gstore` 打开图形应用商店：
+
+- 上下键选择，Enter 安装/卸载，Esc 退出
+- `.wcde` 包走解包安装，状态显示 `[installed]` / `[available]`
+- 安装完成后可直接退出到终端运行 `java <类名>`
+
+注意：`format-disk` 仅支持 ≤512MB 的目标盘，更大的盘会明确报错
+`format-disk: disk too large (max 512MB supported)`，不再静默失败。
