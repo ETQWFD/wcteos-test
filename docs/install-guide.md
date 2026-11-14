@@ -99,3 +99,18 @@ qemu-system-x86_64 -m 512 -smp 1 \
   -drive if=pflash,format=raw,file=OVMF_VARS_4M.fd \
   -drive file=wcteos-Pro-1.0-installed.img,format=raw,if=ide
 ```
+
+### BIOS / Legacy 模式下会发生什么
+
+镜像的 MBR 和 ISO 的 BIOS 引导入口都内置了一段提示程序：在 Legacy 模式启动时显示
+
+```
+wcteos Pro is a UEFI-only system, BIOS boot is not supported.
+Enable UEFI boot in BIOS (disable CSM / Legacy), then select
+the boot entry prefixed with UEFI: for this device.
+Press any key to continue...
+```
+
+按任意键后交回 BIOS 继续尝试下一个启动设备，不会死等。
+这不是安装介质损坏，是启动模式不对：请在 BIOS 中关闭 CSM/Legacy Support，
+并在启动菜单选择带 `UEFI:` 前缀的那一项。
