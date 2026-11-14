@@ -3176,6 +3176,38 @@ static void st_install(CHAR16 *name) {
         out_ascii(st_copy(src, dst) ? "installed\r\n" : "install failed\r\n");
     }
 }
+
+static int del_dir_contents(EFI_FILE_PROTOCOL *dir)
+{
+    static UINT8 info[1024];
+    EFI_GUID gi = { 0x09576E92, 0x6D3F, 0x11D2, { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
+    dir->SetPosition(dir, 0);
+    for (;;) {
+        UINTN sz = sizeof(info);
+        if (EFI_IS_ERROR(dir->Read(dir, &sz, info)) || sz == 0) break;
+        EFI_FILE_INFO *fi = (EFI_FILE_INFO *)info;
+        if (fi->FileName[0] == L'.') continue;
+        EFI_FILE_PROTOCOL *f = NULL;
+        if (EFI_IS_ERROR(dir->Open(dir, &f, fi->FileName, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0)) || !f)
+            continue;
+        if (fi->Attribute & EFI_FILE_DIRECTORY) del_dir_contents(f);
+        f->Delete(f);
+    }
+    return 1;
+}
+
+static void wcde_uninstall(void)
+{
+    EFI_FILE_PROTOCOL *d = NULL;
+    if (!open_path(L"\\wct\\java", &d, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0) || !d) {
+        out_ascii("not installed\r\n");
+        return;
+    }
+    del_dir_contents(d);
+    d->Delete(d);
+    out_ascii("removed (wcde)\r\n");
+}
+
 static void st_remove(CHAR16 *name) {
     while (*name == ' ') ++name;
     CHAR16 dst[256];
@@ -3183,6 +3215,13 @@ static void st_remove(CHAR16 *name) {
     while (pre[k]) { dst[k] = pre[k]; ++k; }
     for (int j = 0; name[j] && k < 250; ++j) dst[k++] = name[j];
     dst[k] = 0;
+    int is_w = 0;
+    {
+        UINTN len = wlen(name);
+        if (len >= 5 && name[len-5]==L'.' && (name[len-4]==L'w'||name[len-4]==L'W')
+            && name[len-3]==L'c' && name[len-2]==L'd' && name[len-1]==L'e') is_w = 1;
+    }
+    if (is_w) { wcde_uninstall(); return; }
     EFI_FILE_PROTOCOL *f = NULL;
     if (!open_path(dst, &f, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0)) { out_ascii("not installed\r\n"); return; }
     EFI_STATUS st = f->Delete(f);
@@ -3194,33 +3233,6 @@ static void cmd_store(CHAR16 *args) {
     if (weq_n(args, L"install ", 8)) st_install(args + 8);
     else if (weq_n(args, L"remove ", 7)) st_remove(args + 7);
     else out_ascii("usage: store | store install <file> | store remove <file>\r\n");
-}
-
-static void cmd_probe(CHAR16 *args)
-{
-    CHAR16 p[256];
-    path_for(p, 256, args);
-    out(L"path="); outln(p);
-    out(L"ROOT="); out_int((UINT64)(UINTN)ROOT); outln(L"");
-    if (!ROOT) { outln(L"no ROOT"); return; }
-    EFI_FILE_PROTOCOL *f = NULL;
-    EFI_STATUS st = ROOT->Open(ROOT, &f, p, 1, 0);
-    out(L"status=0x"); out_int((UINT64)st); outln(L"");
-    if (!EFI_IS_ERROR(st) && f) {
-        EFI_FILE_INFO *info = NULL;
-        static UINT8 buf[512];
-        UINTN sz = 0;
-        EFI_GUID gi = { 0x09576E92, 0x6D3F, 0x11D2, { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
-        if (!EFI_IS_ERROR(f->GetInfo(f, &gi, &sz, NULL))) {
-            sz = sizeof(buf);
-            if (!EFI_IS_ERROR(f->GetInfo(f, &gi, &sz, buf))) {
-                info = (EFI_FILE_INFO *)buf;
-                out(L"size="); out_int(info->FileSize); outln(L"");
-                out(L"name="); outln(info->FileName);
-            }
-        }
-        f->Close(f);
-    }
 }
 
 static void process_command(CHAR16 *line)
@@ -3284,7 +3296,6 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"store")) cmd_store(args);
     else if (weq(command, L"gstore")) cmd_gstore();
     else if (weq(command, L"java")) cmd_java(args);
-    else if (weq(command, L"probe")) cmd_probe(args);
     else if (weq(command, L"wcde")) cmd_wcde(args);
     else if (weq(command, L"bug") || weq(command, L"bsod")) cmd_bsod();
     else if (weq(command, L"exitgui")) cmd_exitgui();

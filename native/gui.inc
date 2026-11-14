@@ -738,7 +738,6 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
         for (UINTN i = 0; i < sizeof(mbr_hint) && i < 446; ++i) sec[i] = mbr_hint[i];
     }
     UINT64 pstart = 2048, psec = total - pstart;
-    if (psec > 1049599) { outln(L"format-disk: disk too large (max 512MB supported)"); return 0; }
     sec[446] = 0x00; sec[450] = 0xEF;
     *(UINT32 *)(sec + 454) = (UINT32)pstart;
     *(UINT32 *)(sec + 458) = (UINT32)psec;
@@ -782,6 +781,7 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
     *pct = 90; ins_progress("Verifying...", *pct);
     ins_bio = b; ins_med = m; fs_dh = disks[idx];
     fs_b = b; fs_m = m; fs_part = pstart; fs_fatsz = fatsz;
+    { void (*fl2)(void *) = *(void (**)(void *))((UINT8 *)b + 40); if (fl2) fl2(b); }
     return 1;
 }
 
@@ -1302,7 +1302,18 @@ static void cmd_gstore(void) {
             while (pre[k2]) { tgt[k2] = pre[k2]; ++k2; }
             for (int j = 0; nm[j] && k2 < 250; ++j) tgt[k2++] = nm[j];
             tgt[k2] = 0;
-            if (st_exists(tgt)) st_remove(nm); else st_install(nm);
+            int sel_is_wcde = 0;
+            {
+                UINTN L = 0; while (nm[L]) ++L;
+                if (L >= 5 && nm[L-5]==L'.' && (nm[L-4]==L'w'||nm[L-4]==L'W')
+                    && nm[L-3]==L'c' && nm[L-2]==L'd' && nm[L-1]==L'e') sel_is_wcde = 1;
+            }
+            if (sel_is_wcde) {
+                EFI_FILE_PROTOCOL *pf = NULL;
+                if (open_path(L"\\wct\\java", &pf, EFI_FILE_MODE_READ, 0) && pf) { pf->Close(pf); st_remove(nm); }
+                else st_install(nm);
+            } else if (st_exists(tgt)) st_remove(nm);
+            else st_install(nm);
         }
     }
     gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(0, 0, 0));

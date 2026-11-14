@@ -82,3 +82,13 @@ Demo.class	4123
 
 注意：`format-disk` 仅支持 ≤512MB 的目标盘，更大的盘会明确报错
 `format-disk: disk too large (max 512MB supported)`，不再静默失败。
+
+## 商店卸载
+
+`.wcde` 包在商店里再次按 Enter 会卸载：删除 `\wct\java` 整个目录（含 `wct\WctRuntime.class`），
+状态回到 `[available]`。
+
+## 支持的磁盘容量
+
+`format-disk` 现已支持 1GB 及以下（512MB / 1GB 均实测通过：格式化后能写入内核与全部包，
+重启可直接进系统）。关键修复是格式化与写文件后对块设备调用 Flush，避免大容量盘缓存未落盘。
