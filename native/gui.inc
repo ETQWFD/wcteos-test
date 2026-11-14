@@ -691,6 +691,67 @@ static void ins_progress(const char *label, int pct) {
     gfx_text(cx + 24, cy + 136, "Do not power off", gfx_rgb(120, 135, 155));
     gfx_present();
 }
+
+typedef EFI_STATUS (*INS_WR)(void *, UINT32, UINT64, UINTN, void *);
+static void *ins_bio;
+static void *ins_med;
+static int ins_write(void *b, void *m, UINT64 lba, UINTN cnt, void *buf) {
+    INS_WR wr = *(INS_WR *)((UINT8 *)b + 32);
+    return (int)wr(b, *(UINT32 *)m, lba, cnt * 512, buf);
+}
+static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
+    void *b = NULL, *m = NULL;
+    if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(disks[idx], &bio_guid, &b)) || !b) return 0;
+    m = *(void **)((UINT8 *)b + 8);
+    if (!m) return 0;
+    UINT64 lb = ins_lb(m, 24);
+    UINT64 total = lb + 1;
+    if (total < 2048 + 65536) return 0;
+    UINT8 sec[512];
+    for (int i = 0; i < 512; ++i) sec[i] = 0;
+    UINT64 pstart = 2048, psec = total - pstart;
+    sec[446] = 0x00; sec[450] = 0x0C;
+    *(UINT32 *)(sec + 454) = (UINT32)pstart;
+    *(UINT32 *)(sec + 458) = (UINT32)psec;
+    sec[510] = 0x55; sec[511] = 0xAA;
+    if (!ins_write(b, m, 0, 1, sec)) return 0;
+    *pct = 30; ins_progress("Formatting disk...", *pct);
+    for (int i = 0; i < 512; ++i) sec[i] = 0;
+    sec[0] = 0xEB; sec[1] = 0x58; sec[2] = 0x90; sec[3] = 'W'; sec[4] = 'C'; sec[5] = 'T'; sec[6] = 'E'; sec[7] = 'O'; sec[8] = 'S'; sec[9] = ' '; sec[10] = ' ';
+    *(UINT16 *)(sec + 11) = 512; sec[13] = 1; *(UINT16 *)(sec + 14) = 32; sec[16] = 2;
+    sec[21] = 0xF8; *(UINT16 *)(sec + 24) = 63; *(UINT16 *)(sec + 26) = 255;
+    *(UINT32 *)(sec + 28) = (UINT32)pstart;
+    *(UINT32 *)(sec + 32) = (UINT32)psec;
+    UINT32 fatsz = (UINT32)(psec / 128) + 4;
+    *(UINT32 *)(sec + 36) = fatsz;
+    *(UINT32 *)(sec + 44) = 2; *(UINT16 *)(sec + 48) = 1; *(UINT16 *)(sec + 50) = 6;
+    sec[64] = 0x80; sec[66] = 0x29;
+    *(UINT32 *)(sec + 67) = 0x57435421;
+    const char *lab = "WCTEOS     "; for (int i = 0; i < 11; ++i) sec[71 + i] = lab[i];
+    const char *fs = "FAT32   "; for (int i = 0; i < 8; ++i) sec[82 + i] = fs[i];
+    sec[510] = 0x55; sec[511] = 0xAA;
+    if (!ins_write(b, m, pstart, 1, sec)) return 0;
+    if (!ins_write(b, m, pstart + 6, 1, sec)) return 0;
+    *pct = 60; ins_progress("Formatting disk...", *pct);
+    for (int i = 0; i < 512; ++i) sec[i] = 0;
+    *(UINT32 *)(sec + 0) = 0x41615252;
+    *(UINT32 *)(sec + 484) = 0x61417272;
+    UINT32 clus = (UINT32)((psec - 32 - 2ULL * fatsz) / 1);
+    *(UINT32 *)(sec + 488) = clus;
+    *(UINT32 *)(sec + 492) = 3;
+    *(UINT32 *)(sec + 508) = 0xAA550000;
+    if (!ins_write(b, m, pstart + 1, 1, sec)) return 0;
+    for (int i = 0; i < 512; ++i) sec[i] = 0;
+    *(UINT32 *)(sec + 0) = 0x0FFFFFF8; *(UINT32 *)(sec + 4) = 0x0FFFFFFF;
+    for (int f = 0; f < 2; ++f) if (!ins_write(b, m, pstart + 32 + (UINT64)f * fatsz, 1, sec)) return 0;
+    for (int i = 0; i < 512; ++i) sec[i] = 0;
+    UINT64 root = pstart + 32 + 2ULL * fatsz;
+    if (!ins_write(b, m, root, 1, sec)) return 0;
+    *pct = 90; ins_progress("Verifying...", *pct);
+    ins_bio = b; ins_med = m;
+    return 1;
+}
+
 static int ins_load_core(void) {
     EFI_DEVICE_PATH_PROTOCOL *dp = NULL;
     if (!g_loaded) return 0;
@@ -734,7 +795,11 @@ static void cmd_installer(void) {
             if (k.ScanCode == 0x01 && sel > 0) --sel;
             else if (k.ScanCode == 0x02 && sel + 1 < n) ++sel;
             else if (k.UnicodeChar == 27) break;
-            else if (k.UnicodeChar == '\r') { if (ins_load_core()) { gfx_active = 0; return; } }
+            else if (k.UnicodeChar == '\r') {
+                int pct = 0;
+                if (ins_format_disk(sel, disks, mb, &pct)) { *(&pct) = 100; ins_progress("Format complete. Ready to install.", 100); ST->BootServices->Stall(1200000); }
+                else { ins_progress("Format failed.", 0); ST->BootServices->Stall(1200000); }
+            }
             ins_ui(sel, n, mb, 0, n ? "Mouse or arrow keys. Enter installs." : "No target disk found.");
         }
         if (sp && sp->Mode) {
@@ -746,7 +811,11 @@ static void cmd_installer(void) {
                 if (st.LeftButton || st.RightButton) {
                     for (int i = 0; i < n; ++i) if (mx > 112 && mx < 892 && my > 186 + i * 52 && my < 230 + i * 52) sel = i;
                     if (my > (int)gfx_h - 200 - 92 + 90 && my < (int)gfx_h - 200 - 92 + 134) {
-                        if (mx > (int)gfx_h * 0 + 112 + 40 && mx < 112 + 172) { if (ins_load_core()) { gfx_active = 0; return; } }
+                        if (mx > 112 + 40 && mx < 112 + 172) {
+                            int pct = 0;
+                            if (ins_format_disk(sel, disks, mb, &pct)) { pct = 100; ins_progress("Format complete. Ready to install.", 100); ST->BootServices->Stall(1200000); }
+                            else { ins_progress("Format failed.", 0); ST->BootServices->Stall(1200000); }
+                        }
                         else if (mx > 112 + 190 && mx < 112 + 340) break;
                     }
                 }
