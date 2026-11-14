@@ -716,6 +716,16 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
     if (total < 2048 + 65536) return 0;
     UINT8 sec[512];
     for (int i = 0; i < 512; ++i) sec[i] = 0;
+    /* Legacy BIOS 启动时给出明确提示，而不是停在 "Booting from hard disk..." */
+    {
+        static const UINT8 mbr_hint[] = {
+            0xBE,0x11,0x7C,0xB4,0x0E,0xAC,0x84,0xC0,0x74,0x04,0xCD,0x10,0xEB,0xF7,0xF4,0xEB,0xFE,
+            'w','c','t','e','o','s',' ','P','r','o',' ','i','s',' ','a',' ','U','E','F','I',' ','s','y','s','t','e','m','.',' ',
+            'E','n','a','b','l','e',' ','U','E','F','I',' ','b','o','o','t',' ','(','d','i','s','a','b','l','e',' ','C','S','M','/','L','e','g','a','c','y',')',' ',
+            'a','n','d',' ','p','i','c','k',' ','t','h','e',' ','U','E','F','I',' ','d','e','v','i','c','e','.',0
+        };
+        for (UINTN i = 0; i < sizeof(mbr_hint) && i < 446; ++i) sec[i] = mbr_hint[i];
+    }
     UINT64 pstart = 2048, psec = total - pstart;
     sec[446] = 0x00; sec[450] = 0xEF;
     *(UINT32 *)(sec + 454) = (UINT32)pstart;

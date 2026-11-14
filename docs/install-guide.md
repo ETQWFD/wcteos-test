@@ -80,3 +80,22 @@ md5sum ./check.efi
 | 页面显示 `S1=4` 等 | 安装阶段失败，S1 后为阶段号 | 记录阶段号，按阶段排查 |
 | 目标盘 `non DOS media` | 格式化未完成 | 重新安装，确认磁盘容量 ≥ 400 MB |
 | 回车无反应 | 旧版固件把 Enter 报为 `\n`/ScanCode 0x0D | 使用 BUILD=73d0cd19 及之后版本 |
+
+## 启动方式（重要）
+
+wcteos Pro 是**纯 UEFI** 系统，没有 BIOS/CSM 引导代码。
+
+- 主板必须开启 UEFI 启动，关闭 CSM / Legacy / Legacy Support。
+- 启动菜单里选带 **UEFI:** 前缀的那一项（如 `UEFI: Kingston USB`）。
+- 如果在 Legacy 模式启动，MBR 会打印提示：
+  `wcteos Pro is a UEFI system. Enable UEFI boot (disable CSM/Legacy) and pick the UEFI device.`
+  此时回到 BIOS 改启动模式即可，不是介质损坏。
+
+QEMU 下启动已安装镜像：
+
+```
+qemu-system-x86_64 -m 512 -smp 1 \
+  -drive if=pflash,format=raw,readonly=on,file=OVMF_CODE_4M.fd \
+  -drive if=pflash,format=raw,file=OVMF_VARS_4M.fd \
+  -drive file=wcteos-Pro-1.0-installed.img,format=raw,if=ide
+```
