@@ -134,3 +134,48 @@ Press any key to continue...
 ```
 MZ = 4D5A, PE = 50450000, Machine = 0x8664, Subsystem = 10 (EFI Application)
 ```
+
+## 分区管理（part 命令）
+
+安装器支持 MBR 分区表的新建与删除，命令行下：
+
+```
+part list                  # 列出 4 个分区槽（type / start LBA / sectors）
+part create 256            # 新建一个 256MB 的 ESP（type 0xEF，起始 LBA 自动对齐到上一分区末尾 + 2048）
+part delete 1              # 删除 1 号分区
+```
+
+实测输出：
+
+```
+part: MBR partition table
+  #1  type=0xEF  start=2048  sectors=1046528
+  [empty]
+  [empty]
+  [empty]
+```
+
+## 构建水印 BUILD.TXT
+
+安装完成后，目标盘根目录会写入 16 字节的构建标识：
+
+```
+$ mtype -i disk.img@@1048576 ::/BUILD.TXT
+BUILD=73d0cd19
+```
+
+用于核对「这块盘是哪次构建装的」，避免旧盘冒充新盘。
+
+## 复制进度
+
+`install-files` 的进度按真实字节推进（`copied / FileSize`），不再是固定估算值。
+
+## ISO 的双引导能力边界
+
+| 介质形态 | Legacy BIOS | UEFI |
+|---|---|---|
+| ISO 刻成光盘 / QEMU `-drive media=cdrom` | ❌ El Torito BIOS 条目被固件拒绝读取（`Could not read from CDROM`），受 xorriso 生成限制 | ✅ 正常 |
+| ISO `dd` 到 U 盘 / 硬盘 | ✅ 执行 MBR 里的提示代码 | ✅ 正常 |
+| 已安装的硬盘 | ✅ 执行 MBR 里的提示代码 | ✅ 正常 |
+
+也就是说：**用 U 盘安装请 dd 整个 ISO，不要用刻录软件做成「光盘」**。dd 后的 U 盘在 BIOS 下会给出 UEFI 提示，不会静默失败。

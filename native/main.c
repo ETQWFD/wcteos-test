@@ -3235,6 +3235,119 @@ static void cmd_store(CHAR16 *args) {
     else out_ascii("usage: store | store install <file> | store remove <file>\r\n");
 }
 
+
+/* 分区表管理：part list | part create <sizeMB> | part delete <n> */
+typedef EFI_STATUS (EFIAPI *PART_RD)(void *, UINT32, UINT64, UINTN, void *);
+typedef EFI_STATUS (EFIAPI *PART_WR)(void *, UINT32, UINT64, UINTN, void *);
+
+
+static void out_hex8(UINT64 v)
+{
+    static const char *HX = "0123456789ABCDEF";
+    char b[3];
+    b[0] = HX[(v >> 4) & 0xF];
+    b[1] = HX[v & 0xF];
+    b[2] = 0;
+    out_ascii(b);
+}
+
+static int part_io(UINT8 **bio, UINT32 *mid)
+{
+    EFI_HANDLE d[16]; UINT64 mb2[16];
+    int n = ins_disk_count(d, 16, mb2);
+    for (int i = 0; i < n; ++i) {
+        void *b = NULL;
+        if (EFI_IS_ERROR(ST->BootServices->HandleProtocol(d[i], &bio_guid, &b)) || !b) continue;
+        UINT8 *media = *(UINT8 **)((UINT8 *)b + 8);
+        if (!media) continue;
+        UINT32 block_size = ins_bs(media, 12);
+        if (block_size == 2048) continue;           /* 跳过光驱 */
+        if (block_size != 512) continue;
+        *bio = (UINT8 *)b;
+        *mid = *(UINT32 *)media;                    /* MediaId */
+        return 1;
+    }
+    return 0;
+}
+
+static void cmd_part(CHAR16 *args)
+{
+    while (args && *args == ' ') ++args;
+    UINT8 *bio = NULL; UINT32 mid = 0;
+    if (!part_io(&bio, &mid)) { out_ascii("part: no disk\r\n"); return; }
+    PART_RD rd = *(PART_RD *)(bio + 24);
+    PART_WR wr = *(PART_WR *)(bio + 32);
+    UINT8 sec[512];
+    for (int i = 0; i < 512; ++i) sec[i] = 0;
+    {
+        EFI_STATUS rs = rd(bio, mid, 0, 512, sec);
+        if (EFI_IS_ERROR(rs)) {
+            out_ascii("part: read MBR failed status=0x");
+            out_int((UINT64)(UINTN)rs);
+            out_ascii("\r\n");
+            return;
+        }
+    }
+
+    if (!args || !*args || weq(args, L"list")) {
+        out_ascii("part: MBR partition table\r\n");
+        for (int i = 0; i < 4; ++i) {
+            UINT8 *e = sec + 446 + i * 16;
+            if (!e[4]) { out_ascii("  [empty]\r\n"); continue; }
+            out_ascii("  #"); out_int((UINT64)(i + 1));
+            out_ascii("  type=0x"); out_hex8(e[4]);
+            out_ascii("  start="); out_int(*(UINT32 *)(e + 8));
+            out_ascii("  sectors="); out_int(*(UINT32 *)(e + 12)); out_ascii("\r\n");
+        }
+        out_ascii("  (create: part create <sizeMB>   delete: part delete <n>)\r\n");
+        return;
+    }
+
+    if (weq_n(args, L"delete ", 7)) {
+        int idx = 0;
+        CHAR16 *p = args + 7;
+        while (*p == ' ') ++p;
+        while (*p >= L'1' && *p <= L'4') { idx = idx * 10 + (int)(*p - L'0'); ++p; }
+        if (idx < 1 || idx > 4) { out_ascii("part: index 1..4\r\n"); return; }
+        UINT8 *e = sec + 446 + (idx - 1) * 16;
+        for (int i = 0; i < 16; ++i) e[i] = 0;
+        if (EFI_IS_ERROR(wr(bio, mid, 0, 512, sec))) { out_ascii("part: write failed\r\n"); return; }
+        out_ascii("part: deleted #"); out_int((UINT64)idx); out_ascii("\r\n");
+        return;
+    }
+
+    if (weq_n(args, L"create ", 7)) {
+        UINT64 sizeMB = 0;
+        CHAR16 *p = args + 7;
+        while (*p == ' ') ++p;
+        while (*p >= L'0' && *p <= L'9') { sizeMB = sizeMB * 10 + (UINT64)(*p - L'0'); ++p; }
+        if (!sizeMB) { out_ascii("part: size in MB required\r\n"); return; }
+        int slot = -1;
+        for (int i = 0; i < 4; ++i) if (!sec[446 + i * 16 + 4]) { slot = i; break; }
+        if (slot < 0) { out_ascii("part: table full (4 partitions)\r\n"); return; }
+        UINT64 start = 2048;
+        for (int i = 0; i < 4; ++i) {
+            UINT8 *e = sec + 446 + i * 16;
+            if (!e[4]) continue;
+            UINT64 end = *(UINT32 *)(e + 8) + *(UINT32 *)(e + 12);
+            if (end + 2048 > start) start = end + 2048;
+        }
+        UINT64 sectors = sizeMB * 2048ULL;
+        UINT8 *e = sec + 446 + slot * 16;
+        for (int i = 0; i < 16; ++i) e[i] = 0;
+        e[0] = 0x80; e[4] = 0xEF;
+        *(UINT32 *)(e + 8) = (UINT32)start;
+        *(UINT32 *)(e + 12) = (UINT32)sectors;
+        if (EFI_IS_ERROR(wr(bio, mid, 0, 512, sec))) { out_ascii("part: write failed\r\n"); return; }
+        out_ascii("part: created #"); out_int((UINT64)(slot + 1));
+        out_ascii(" start="); out_int(start);
+        out_ascii(" sectors="); out_int(sectors); out_ascii(" (ESP 0xEF)\r\n");
+        return;
+    }
+
+    out_ascii("usage: part list | part create <sizeMB> | part delete <n>\r\n");
+}
+
 static void process_command(CHAR16 *line)
 {
     CHAR16 *command, *args;
@@ -3273,6 +3386,7 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"color")) cmd_color(args);
     else if (weq(command, L"tty")) cmd_tty();
     else if (weq(command, L"gui")) cmd_gui();
+    else if (weq(command, L"part")) cmd_part(args);
     else if (weq(command, L"disk-info")) {
         EFI_HANDLE d[16]; UINT64 m2[16]; int n2 = ins_disk_count(d, 16, m2);
         ST->ConOut->OutputString(ST->ConOut, L"disk-info\r\n");

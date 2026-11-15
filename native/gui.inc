@@ -827,6 +827,19 @@ static int fs_mkdir(UINT32 self, UINT32 parent, const char *name, UINT32 child) 
 }
 static int fs_stage;
 static int ins_copy_pkgs(EFI_FILE_PROTOCOL *dstroot);
+
+/* 在目标盘根写入构建水印：BUILD=xxxxxxxx (16 字节) */
+static int fs_write_build_tag(EFI_FILE_PROTOCOL *root) {
+    EFI_FILE_PROTOCOL *f = NULL;
+    UINT64 mode = EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE;
+    if (EFI_IS_ERROR(root->Open(root, &f, L"BUILD.TXT", mode, 0x20)) || !f) return 0;
+    static const char tag[] = "BUILD=" BUILD_HASH "\r\n";
+    UINTN n = sizeof(tag) - 1;
+    EFI_STATUS st = f->Write(f, &n, (VOID *)tag);
+    f->Flush(f); f->Close(f);
+    return !EFI_IS_ERROR(st);
+}
+
 static int fs_install_files(int *pct) {
     if (!fs_dh || !ROOT) return 0;
     typedef EFI_STATUS (EFIAPI *DISC)(EFI_HANDLE, EFI_HANDLE, EFI_HANDLE);
@@ -863,7 +876,14 @@ static int fs_install_files(int *pct) {
     fs_stage = 9;
     if (EFI_IS_ERROR(db->Open(db, &df, L"BOOTX64.EFI", mode, 0x20)) || !df) { fs_stage = 10; return 0; }
     fs_stage = 11;
-    UINT64 real = 0; UINT32 tick = 0;
+    UINT64 real = 0, total = 0; UINT32 tick = 0;
+    {
+        static UINT8 fi_buf[1024];
+        UINTN sz = sizeof(fi_buf);
+        EFI_GUID gi = { 0x09576E92, 0x6D3F, 0x11D2, { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
+        if (!EFI_IS_ERROR(sf->GetInfo(sf, &gi, &sz, fi_buf)))
+            total = ((EFI_FILE_INFO *)fi_buf)->FileSize;
+    }
     for (;;) {
         UINT8 buf[512]; UINTN n = 512;
         for (int i = 0; i < 512; ++i) buf[i] = 0;
@@ -872,9 +892,10 @@ static int fs_install_files(int *pct) {
         UINTN w = n;
         if (EFI_IS_ERROR(df->Write(df, &w, buf)) || w != n) { fs_stage = 12; return 0; }
         real += n;
-        if (++tick >= 128) {
+        if (++tick >= 32) {
             tick = 0;
-            *pct = 30 + (int)((real * 50) / 200000); if (*pct > 85) *pct = 85;
+            *pct = total ? (30 + (int)((real * 50) / total)) : 55;
+            if (*pct > 85) *pct = 85;
             ins_progress("Installing system files...", *pct);
         }
     }
@@ -882,6 +903,7 @@ static int fs_install_files(int *pct) {
     if (!real) return 0;
     df->Flush(df); df->Close(df); db->Close(db); de->Close(de);
     ins_copy_pkgs(root);
+    fs_write_build_tag(root);
     root->Close(root); sf->Close(sf);
     ST->BootServices->Stall(300000);
     return 1;
