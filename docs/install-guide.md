@@ -114,3 +114,23 @@ Press any key to continue...
 按任意键后交回 BIOS 继续尝试下一个启动设备，不会死等。
 这不是安装介质损坏，是启动模式不对：请在 BIOS 中关闭 CSM/Legacy Support，
 并在启动菜单选择带 `UEFI:` 前缀的那一项。
+
+## 固件层面的三条硬限制（不是 bug，是加载机制决定的）
+
+| 限制 | 原因 | 当前处理 |
+|---|---|---|
+| Legacy BIOS 无法启动 | 内核是 PE32+ 的 EFI 应用，靠固件 `LoadImage/StartImage` 加载；BIOS 的 INT 19h 只认 MBR 前 446 字节，没有 PE 加载器，也不认 ESP。镜像里的 Legacy 分支只能跑实模式代码 | MBR 和 ISO 的 BIOS 入口只打印"需要 UEFI"提示并交回 BIOS，**不假装能在 Legacy 下安装或启动** |
+| Secure Boot 会拒绝未签名镜像 | `BOOTX64.EFI` 没有 Microsoft/厂商签名，开启 Secure Boot 的固件会直接拒绝加载 | 使用前在固件里关闭 Secure Boot；或自行用 `sbctl`/`KeyTool` 把自己的密钥 enroll 进 db 并签名（本项目未提供签名流程） |
+| 32 位 UEFI 固件无法加载 | 镜像的 PE Machine 是 `0x8664`（x86-64），32 位固件的 `LoadImage` 只接受 `0x014C` | 仅支持 x64 UEFI。老 Atom 平板等 32 位 UEFI 设备不支持 |
+
+### 分区表约定
+
+安装盘使用 MBR，单分区：
+- type = `0xEF`（EFI System Partition，UEFI 规范要求；**不是** `0x0C`，部分固件不把 `0x0C` 当作 ESP 扫描）
+- boot flag = `0x80`（active）
+- 起始 LBA 2048，分区内含 `\EFI\BOOT\BOOTX64.EFI`（UEFI 标准可移动介质路径，不依赖 NVRAM 启动项）
+
+`BOOTX64.EFI` 头部自检：
+```
+MZ = 4D5A, PE = 50450000, Machine = 0x8664, Subsystem = 10 (EFI Application)
+```

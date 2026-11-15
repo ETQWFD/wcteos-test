@@ -738,7 +738,7 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
         for (UINTN i = 0; i < sizeof(mbr_hint) && i < 446; ++i) sec[i] = mbr_hint[i];
     }
     UINT64 pstart = 2048, psec = total - pstart;
-    sec[446] = 0x00; sec[450] = 0xEF;
+    sec[446] = 0x80; sec[450] = 0xEF;
     *(UINT32 *)(sec + 454) = (UINT32)pstart;
     *(UINT32 *)(sec + 458) = (UINT32)psec;
     sec[510] = 0x55; sec[511] = 0xAA;
