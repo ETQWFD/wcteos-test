@@ -1682,6 +1682,16 @@ static void cmd_linux(void)
         return;
     }
 
+    /* 传内核命令行：控制台走 GOP 帧缓冲，initrd 指向同目录的归档 */
+    {
+        EFI_LOADED_IMAGE_PROTOCOL *cli = NULL;
+        if (!EFI_IS_ERROR(ST->BootServices->HandleProtocol(child, &loaded_image_guid, (VOID **)&cli)) && cli) {
+            static CHAR16 linux_opts[] = L"console=tty0 initrd=\\wct\\bootx64.initrd.gz";
+            cli->LoadOptions = linux_opts;
+            cli->LoadOptionsSize = (UINT32)((wlen(linux_opts) + 1) * sizeof(CHAR16));
+        }
+    }
+
     UINTN exit_size = 0;
     CHAR16 *exit_data = NULL;
     status = ST->BootServices->StartImage(child, &exit_size, &exit_data);
