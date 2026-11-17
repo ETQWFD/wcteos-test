@@ -124,3 +124,11 @@ Linux `bzImage` 在 `CONFIG_EFI_STUB=y` 时会带一个 PE 头（本镜像 `e_lf
 | ISO（CD-ROM）UEFI 启动 → `linux` | ✅ 进 Linux shell（截图实测） |
 | 已安装硬盘 UEFI 启动 → `linux` | ✅ 进 Linux shell（截图实测） |
 | 无 `\wct\bootx64.efi` 的盘 | ✅ 自动降级为纯原生模式，不报错 |
+
+---
+
+## 持久化（2026-11 更新）
+
+Linux 层现在有可写根：ESP 上的 `\wct\rootfs.img`（48MB ext4）通过 loop 挂载为 `/`。
+`apk add` 装的软件重启后仍在，已实测（装 nano → 重启 → `nano --version` 仍在）。
+详见 [linux-persistence.md](linux-persistence.md)。

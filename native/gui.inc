@@ -954,6 +954,35 @@ static int ins_copy_pkgs(EFI_FILE_PROTOCOL *dstroot) {
         }
         srcp->Close(srcp);
     }
+
+    /* 复制 Linux 子系统三件套：内核 / initramfs / 可写根镜像 */
+    {
+        static const CHAR16 *names[3] = { L"wct\\bootx64.efi", L"wct\\bootx64.initrd.gz", L"wct\\rootfs.img" };
+        for (int k = 0; k < 3; ++k) {
+            EFI_FILE_PROTOCOL *sf2 = NULL, *dw2 = NULL, *df2 = NULL;
+            if (EFI_IS_ERROR(ROOT->Open(ROOT, &sf2, (CHAR16 *)names[k], 1, 0)) || !sf2) continue;
+            UINT64 m2 = EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE;
+            dstroot->Open(dstroot, &dw2, L"wct", m2, EFI_FILE_DIRECTORY);
+            if (dw2) {
+                const CHAR16 *leaf = (CHAR16 *)names[k];
+                for (const CHAR16 *p2 = leaf; *p2; ++p2) if (*p2 == L'\\') leaf = p2 + 1;
+                if (!EFI_IS_ERROR(dw2->Open(dw2, &df2, (CHAR16 *)leaf, m2, 0x20)) && df2) {
+                    static UINT8 b2[4096];
+                    for (;;) {
+                        UINTN n = sizeof(b2);
+                        if (EFI_IS_ERROR(sf2->Read(sf2, &n, b2)) || n == 0) break;
+                        UINTN w = n;
+                        if (EFI_IS_ERROR(df2->Write(df2, &w, b2))) break;
+                    }
+                    df2->Flush(df2); df2->Close(df2);
+                    ok = 1;
+                }
+                dw2->Close(dw2);
+            }
+            sf2->Close(sf2);
+        }
+    }
+
     src->Close(src);
     return ok;
 }
