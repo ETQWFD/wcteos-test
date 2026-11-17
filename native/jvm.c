@@ -323,10 +323,14 @@ static int parse_class(KClass *c, const ju1 *img, int len) {
                 m->max_stack = (int)rd2(img + p);
                 m->max_locals = (int)rd2(img + p + 2);
                 ju4 cl = rd4(img + p + 4);
-                m->code = img + p + 8;
-                m->code_len = (int)cl;
-                int q = p + 8 + (int)cl;
-                ju2 exn = rd2(img + q); q += 2;
+                if ((int)cl < 0 || p + 8 + (int)cl > end || p + 8 + (int)cl > len) {
+                    m->code = 0; m->code_len = 0;   /* 畸形 code_length：拒绝执行 */
+                } else {
+                    m->code = img + p + 8;
+                    m->code_len = (int)cl;
+                }
+                int q = p + 8 + m->code_len;
+                ju2 exn = (q + 2 <= end && q + 2 <= len) ? (ju2)rd2(img + q) : 0; q += 2;
                 for (int e = 0; e < exn && e < 16; ++e) {
                     m->ex[e].start = rd2(img + q);
                     m->ex[e].end = rd2(img + q + 2);
@@ -1790,7 +1794,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
 #define LSLOT(i) (locals[(i) < MAX_SLOTS ? (i) : (MAX_SLOTS - 1)])
 #define ST_SLOT(i) (stack[(i) < MAX_SLOTS ? (i) : (MAX_SLOTS - 1)])
 
-    while (pc < clen) {
+    while (pc >= 0 && pc < clen) {
         ju1 op = code[pc++];
 #ifdef WCTJ_TRACE
         if (jstreq(m->name, "main")) {
@@ -1977,22 +1981,22 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
         case 0x94: { pop(); ji8 b = pop(); pop(); ji8 a = pop(); push(a < b ? -1 : (a > b ? 1 : 0)); break; } /* lcmp */
         case 0x95: case 0x96: { pop(); pop(); push(0); break; }                                      /* fcmp */
         case 0x97: case 0x98: { pop(); pop(); pop(); pop(); push(0); break; }                        /* dcmp */
-        case 0x99: { int v = (int)pop(); { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } break; } /* ifeq */
-        case 0x9A: { int v = (int)pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0x9B: { int v = (int)pop(); if (v >= 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0x9C: { int v = (int)pop(); if (v < 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0x9D: { int v = (int)pop(); if (v > 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0x9E: { int v = (int)pop(); if (v <= 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0x9F: { int b = (int)pop(), a = (int)pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0xA0: { int b = (int)pop(), a = (int)pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0xA1: { int b = (int)pop(), a = (int)pop(); if (a < b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0xA2: { int b = (int)pop(), a = (int)pop(); if (a >= b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0xA3: { int b = (int)pop(), a = (int)pop(); if (a > b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0xA4: { int b = (int)pop(), a = (int)pop(); if (a <= b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0xA5: { ji8 b = pop(); ji8 a = pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0xA6: { ji8 b = pop(); ji8 a = pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; }
-        case 0xA7: { { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } break; }  /* goto */
-        case 0xA8: { { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } break; }  /* jsr（近似） */
+        case 0x99: { int v = (int)pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifeq */
+        case 0x9A: { int v = (int)pop(); if (v != 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifne */
+        case 0x9B: { int v = (int)pop(); if (v < 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* iflt */
+        case 0x9C: { int v = (int)pop(); if (v >= 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifge */
+        case 0x9D: { int v = (int)pop(); if (v > 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0x9E: { int v = (int)pop(); if (v <= 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0x9F: { int b = (int)pop(), a = (int)pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA0: { int b = (int)pop(), a = (int)pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA1: { int b = (int)pop(), a = (int)pop(); if (a < b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA2: { int b = (int)pop(), a = (int)pop(); if (a >= b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA3: { int b = (int)pop(), a = (int)pop(); if (a > b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA4: { int b = (int)pop(), a = (int)pop(); if (a <= b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA5: { ji8 b = pop(); ji8 a = pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA6: { ji8 b = pop(); ji8 a = pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA7: { { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } break; }  /* goto */
+        case 0xA8: { { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } break; }  /* jsr（近似） */
         case 0xA9: { ju1 idx = code[pc++]; pc = (int)LSLOT(idx); break; } /* ret（近似） */
         case 0xAA: { /* tableswitch */
             int base = pc - 1;
@@ -2329,8 +2333,8 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             push(o ? (ji8)obj_ref(o) : 0);
             break;
         }
-        case 0xC6: { ji8 v = pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; } /* ifnull */
-        case 0xC7: { ji8 v = pop(); if (v != 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; } else pc += 2; break; } /* ifnonnull */
+        case 0xC6: { ji8 v = pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifnull */
+        case 0xC7: { ji8 v = pop(); if (v != 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifnonnull */
         case 0xC8: { { int bo = (int)rd4(code + pc); pc = (pc - 1) + bo; } break; }        /* goto_w */
         default:
             {

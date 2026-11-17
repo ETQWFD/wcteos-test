@@ -154,7 +154,13 @@ static int wcde_install(const CHAR16 *path)
         if (!scmp((char *)k, "root")) scopy(root_ascii, sizeof(root_ascii), (char *)v);
         else if (!scmp((char *)k, "name")) scopy(pkg_name, sizeof(pkg_name), (char *)v);
         else if (!scmp((char *)k, "version")) scopy(pkg_ver, sizeof(pkg_ver), (char *)v);
-        else if (!scmp((char *)k, "files")) nfiles = 0;
+        else if (!scmp((char *)k, "files")) {
+            const char *dv = v;
+            while (*dv < '0' || *dv > '9') { if (!*dv) break; ++dv; }
+            int acc = 0;
+            while (*dv >= '0' && *dv <= '9') { acc = acc * 10 + (*dv - '0'); ++dv; }
+            nfiles = acc;                      /* 包内声明的文件数，用于校验 */
+        }
     }
     if (!root_ascii[0]) scopy(root_ascii, sizeof(root_ascii), "\\wct\\java");
 
@@ -165,12 +171,12 @@ static int wcde_install(const CHAR16 *path)
 
     /* 文件表：path<TAB>size */
     struct { const char *rel; UINTN off; UINTN size; } tab[32];
-    int n = 0;
+    int n = 0, truncated = 0;
     const char *table_start = p;
     for (;;) {
         wcde_line(&p, line, sizeof(line));
         if (!line[0] || !scmp(line, "--")) break;
-        if (n >= 32) continue;
+        if (n >= 32) { truncated = 1; continue; }   /* 超出表容量，末尾报警 */
         char *tabpos = line;
         while (*tabpos && (*tabpos == ' ' || *tabpos == '\t')) ++tabpos;
         char *rel = tabpos;
@@ -204,6 +210,25 @@ static int wcde_install(const CHAR16 *path)
     }
 
     ST->BootServices->FreePool(raw);
+    if (truncated) {
+        outc(theme()->error, L"wcde: manifest truncated - package has more than 32 files\r\n");
+    }
+    if (nfiles > 0 && n != nfiles) {
+        outc(theme()->error, L"wcde: manifest mismatch (declared ");
+        out_int((UINT64)nfiles);
+        out(L", found ");
+        out_int((UINT64)n);
+        outln(L")");
+        return 0;
+    }
+    if (ok != n) {
+        outc(theme()->error, L"wcde: payload incomplete - wrote ");
+        out_int((UINT64)ok);
+        out(L" of ");
+        out_int((UINT64)n);
+        outln(L" files");
+        return 0;
+    }
     outc(theme()->accent, L"wcde: installed ");
     out_int((UINT64)ok);
     out(L"/");
