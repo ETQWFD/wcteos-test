@@ -1979,8 +1979,10 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
         case 0x92: { int v = (int)pop(); push((ji8)(unsigned short)v); break; }                     /* i2c */
         case 0x93: { int v = (int)pop(); push((ji8)(short)v); break; }                              /* i2s */
         case 0x94: { pop(); ji8 b = pop(); pop(); ji8 a = pop(); push(a < b ? -1 : (a > b ? 1 : 0)); break; } /* lcmp */
-        case 0x95: case 0x96: { pop(); pop(); push(0); break; }                                      /* fcmp */
-        case 0x97: case 0x98: { pop(); pop(); pop(); pop(); push(0); break; }                        /* dcmp */
+        case 0x95: case 0x96: case 0x97: case 0x98:
+            /* fcmp/dcmp 没有真实浮点支持。旧实现静默 push(0)，会让紧跟的
+               if_icmplt/if_icmpge 走错分支（比报错更糟）。现在明确失败。 */
+            fail(-27, "wctj: float/double compare is not supported\n"); rc = -1; goto done;
         case 0x99: { int v = (int)pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifeq */
         case 0x9A: { int v = (int)pop(); if (v != 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifne */
         case 0x9B: { int v = (int)pop(); if (v < 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* iflt */
@@ -1996,8 +1998,19 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
         case 0xA5: { ji8 b = pop(); ji8 a = pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
         case 0xA6: { ji8 b = pop(); ji8 a = pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
         case 0xA7: { { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } break; }  /* goto */
-        case 0xA8: { { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } break; }  /* jsr（近似） */
-        case 0xA9: { ju1 idx = code[pc++]; pc = (int)LSLOT(idx); break; } /* ret（近似） */
+        case 0xA8: { /* jsr：保存返回地址到局部变量后跳转 */
+            if (pc + 3 > clen) { fail(-26, "wctj: jsr truncated\n"); rc = -1; goto done; }
+            int bo_ = (int)(short)rd2(code + pc);
+            ju1 li_ = code[pc + 2];
+            ji8 retn_ = (ji8)(pc + 3);
+            if (li_ < MAX_SLOTS) locals[li_] = retn_;
+            pc = (pc - 1) + bo_;
+            if (pc < 0 || pc >= clen) { fail(-26, "wctj: jsr target out of code\n"); rc = -1; goto done; }
+            break;
+        }
+        case 0xA9: { ju1 idx = code[pc++]; ji8 t = LSLOT(idx);
+            if (t < 0 || t >= clen) { fail(-25, "wctj: ret target out of code\n"); rc = -1; goto done; }
+            pc = (int)t; break; } /* ret */
         case 0xAA: { /* tableswitch */
             int base = pc - 1;
             int pad = (4 - ((base + 1) % 4)) % 4;
@@ -2006,8 +2019,16 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             int low = (int)rd4(code + q); q += 4;
             int high = (int)rd4(code + q); q += 4;
             int key = (int)pop();
-            if (key < low || key > high) pc = base + (int)def;
-            else { int off = (int)rd4(code + q + (key - low) * 4); pc = base + off; }
+            if (q + 12 > clen || high < low || high - low > 65536) {
+                fail(-28, "wctj: tableswitch malformed\n"); rc = -1; goto done;
+            }
+            int tgt;
+            if (key < low || key > high) tgt = base + (int)def;
+            else { int off = (int)rd4(code + q + (key - low) * 4); tgt = base + off; }
+            if (q + (key - low) * 4 + 4 > clen || tgt < 0 || tgt >= clen) {
+                fail(-28, "wctj: tableswitch target out of code\n"); rc = -1; goto done;
+            }
+            pc = tgt;
             break;
         }
         case 0xAB: { /* lookupswitch */
@@ -2017,15 +2038,20 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             ji8 def = (ji8)(int)rd4(code + q); q += 4;
             int npairs = (int)rd4(code + q); q += 4;
             int key = (int)pop();
+            if (npairs < 0 || q + npairs * 8 > clen) {
+                fail(-29, "wctj: lookupswitch malformed\n"); rc = -1; goto done;
+            }
             int target = (int)def;
-            int found = 0;
             for (int i = 0; i < npairs; ++i) {
                 int k = (int)rd4(code + q + i * 8);
                 int off = (int)rd4(code + q + i * 8 + 4);
-                if (k == key) { target = off; found = 1; break; }
+                if (k == key) { target = off; break; }
             }
-            (void)found;
-            pc = base + target;
+            int tgt = base + target;
+            if (tgt < 0 || tgt >= clen) {
+                fail(-29, "wctj: lookupswitch target out of code\n"); rc = -1; goto done;
+            }
+            pc = tgt;
             break;
         }
         case 0xAC: { retval = (ji8)(int)pop(); goto done; }

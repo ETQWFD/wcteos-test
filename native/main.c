@@ -2967,6 +2967,7 @@ static void cmd_api(CHAR16 *args)
 #include "gui.inc"
 #include "jvm_wct.inc"
 #include "wcde.inc"
+#include "reg.inc"
 
 static void print_banner(void)
 {
@@ -3419,6 +3420,7 @@ static void process_command(CHAR16 *line)
     else if (weq(command, L"installer")) cmd_installer();
     else if (weq(command, L"store")) cmd_store(args);
     else if (weq(command, L"gstore")) cmd_gstore();
+    else if (weq(command, L"reg") || weq(command, L"registry")) cmd_reg(args);
     else if (weq(command, L"java")) cmd_java(args);
     else if (weq(command, L"wcde")) cmd_wcde(args);
     else if (weq(command, L"bug") || weq(command, L"bsod")) cmd_bsod();

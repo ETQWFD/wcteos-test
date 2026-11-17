@@ -1,0 +1,51 @@
+#!/bin/sh
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+mount -t proc none /proc 2>/dev/null
+mount -t sysfs none /sys 2>/dev/null
+mount -t devtmpfs none /dev 2>/dev/null
+echo "============================================"
+echo " wcteos Pro - Linux subsystem"
+echo " kernel: $(uname -r)"
+echo "============================================"
+insmod /lib/modules/5.15.0-203-generic/virtio_blk.ko 2>/dev/null
+insmod /lib/modules/5.15.0-203-generic/nls_iso8859-1.ko 2>/dev/null
+insmod /lib/modules/5.15.0-203-generic/e1000.ko 2>/dev/null
+ip link set eth0 up 2>/dev/null
+udhcpc -i eth0 -n -q -t 5 2>/dev/null
+echo "net: $(ip -4 addr show eth0 2>/dev/null | grep inet | awk '{print $2}')"
+
+DEV=""
+for d in /dev/vda1 /dev/sda1 /dev/nvme0n1p1; do
+    [ -e "$d" ] && DEV="$d" && break
+done
+mkdir -p /esp /mnt
+if [ -n "$DEV" ] && mount -t vfat "$DEV" /esp 2>/dev/null; then
+    if [ -f /esp/wct/rootfs.img ]; then
+        losetup /dev/loop0 /esp/wct/rootfs.img 2>/dev/null
+        if mount -t ext4 /dev/loop0 /mnt 2>/dev/null; then
+            if [ ! -f /mnt/.wct-ready ]; then
+                echo "persist: first boot - seeding rootfs into ext4 image"
+                for d in bin sbin lib usr etc var opt root home; do
+                    cp -a /$d /mnt/ 2>/dev/null
+                done
+                mkdir -p /mnt/dev /mnt/proc /mnt/sys /mnt/tmp
+                echo ready > /mnt/.wct-ready
+                echo "persist: seeding done"
+            fi
+            echo "persist: entering persistent root ($DEV)"
+            mount --move /proc /mnt/proc 2>/dev/null
+            mount --move /sys /mnt/sys 2>/dev/null
+            mount --move /dev /mnt/dev 2>/dev/null
+            export PATH=/bin:/sbin:/usr/bin:/usr/sbin HOME=/root
+            exec chroot /mnt /bin/sh
+        else
+            echo "persist: ext4 mount FAILED"
+        fi
+    else
+        echo "persist: no /wct/rootfs.img on ESP"
+    fi
+else
+    echo "persist: no disk ($DEV) or vfat mount failed"
+fi
+echo "persist: running in RAM - changes will be lost on reboot"
+exec /bin/sh
