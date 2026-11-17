@@ -83,17 +83,27 @@ console=tty0 initrd=\wct\bootx64.initrd.gz
 - 运行静态链接的 Linux 可执行文件（把 ELF 放进 initramfs 即可）
 - 观察真实硬件信息（CPU、内存、设备拓扑）
 
-**做不到的（当前 initramfs 的天然限制）**
+**已打通的（Alpine rootfs + 网络 + 包管理器）**
 
-- **没有包管理器**：initramfs 里只有 busybox，没有 `apt`/`apk`/`dnf`，
-  因为没有一个持久化的 rootfs。要装发行版软件包，需要另外挂一个
-  rootfs 分区（下一阶段的工作）
-- **没有网络**：initramfs 里没有网络栈配置，也没有网卡固件/驱动模块
-- **没有持久化**：initramfs 是内存文件系统，重启即丢失，改动不会保存
-- **退出即重启**：Linux 接管硬件后不返回 wcteos，要回原生系统需重启
+initramfs 现在内置 Alpine 3.19 minirootfs（3.3MB gzip），启动后：
 
-这四条是 **initramfs 方案**的边界，不是内核能力的边界。内核本身是完整的
-Ubuntu 5.15 通用内核（含绝大多数驱动），只是当前没有给它一个可写的 rootfs。
+- `apk` 包管理器可用：`apk update` 实测返回 `OK: 23043 distinct packages available`
+- 网络可用：内置 `e1000.ko`（302KB，从 `linux-modules-5.15.0-203-generic` 提取，
+  版本与内核严格匹配），QEMU/真实 Intel 千兆网卡都能驱动；`udhcpc` 自动 DHCP
+- 真装软件：`apk add nano` 实测下载安装 ncurses-terminfo-base / libncursesw / nano
+  三个包，`OK: 8 MiB in 18 packages`，随后 `nano --version` 输出 `GNU nano, version 7.2`
+- 完整工具链入口：`/bin/sh`、`vi`、`wget`、`ssh`、`python3`（`apk add python3` 后）等
+  都按标准 Alpine 方式装
+
+**仍然存在的边界**
+
+- **不持久化**：rootfs 在 initramfs（内存）里，重启后 `apk add` 的东西丢失。
+  要持久化需要把 rootfs 放到磁盘分区并让内核 `root=/dev/sdaX` 挂载，
+  这是下一阶段的分区布局改动
+- **退出即重启**：Linux 接管硬件后不返回 wcteos
+- **HTTPS 证书校验**：minirootfs 的 CA bundle 在部分环境下会让 `https://` 源校验失败，
+  默认已把 `/etc/apk/repositories` 配成 `http://`（Alpine 官方 HTTP 源仍校验包签名，
+  安全性由 APK 签名保证）
 
 ## 为什么用 EFI stub 而不是自己写跳转
 
