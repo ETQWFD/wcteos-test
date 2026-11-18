@@ -1,5 +1,5 @@
-#ifndef WCT_ICONS_H
-#define WCT_ICONS_H
+#ifndef CVER_ICONS_H
+#define CVER_ICONS_H
 
 static void ico_folder(int x, int y) { 
     gfx_fill(x + 4, y + 8, 34, 24, gfx_rgb(214,178,96)); 
@@ -59,4 +59,4 @@ static void ico_calc(int x, int y) {
         }
     }
 }
-#endif // WCT_ICONS_H
+#endif // CVER_ICONS_H

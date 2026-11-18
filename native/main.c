@@ -1,5 +1,5 @@
-/*WCT-OS
-Copyright (C) 2026  aqtwWCT95
+/*CVEROS
+Copyright (C) 2026  aqtwCVER95
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published
@@ -46,17 +46,17 @@ typedef struct {
 
 static const Theme themes[] = {
     { "ubuntu", 0x07, 0x0F, 0x08, 0x0D, 0x0D, 0x0D, 0x0C },
-    { "wct",    0x07, 0x0F, 0x08, 0x0A, 0x0A, 0x09, 0x0C },
+    { "cver",    0x07, 0x0F, 0x08, 0x0A, 0x0A, 0x09, 0x0C },
     { "matrix", 0x0A, 0x0F, 0x02, 0x0A, 0x0A, 0x0A, 0x0C },
     { "amber",  0x0E, 0x0F, 0x06, 0x06, 0x0E, 0x06, 0x0C },
     { "ice",    0x0B, 0x0F, 0x08, 0x09, 0x0F, 0x0B, 0x0C }
 };
-static const CHAR16 *wct_logo[] = {
-    L"█     █  █████  ███████   █████  ███████",
-    L"█     █ █          █     █     █ █",
-    L"█  █  █ █          █     █     █ ███████",
-    L"█ █ █ █ █          █     █     █       █",
-    L"██   ██  █████     █      █████  ███████"
+static const CHAR16 *cver_logo[] = {
+    L"█████   █     █ ███████ ██████   █████  ███████",
+    L"█       █     █ █       █     █ █     █ █      ",
+    L"█       █     █ █████   ██████  █     █  █████ ",
+    L"█        █   █  █       █   █   █     █       █",
+    L"█████     ███   ███████ █    █   █████  ███████"
 };
 
 static int theme_index = 1;
@@ -152,8 +152,8 @@ static int active_tty = 1;
 static int last_control;
 typedef struct { UINT32 pid; char name[20]; char state[10]; } Proc;
 static Proc procs[8] = {
-    { 1, "wct-init",  "running" },
-    { 2, "wct-shell", "running" }
+    { 1, "cver-init",  "running" },
+    { 2, "cver-shell", "running" }
 };
 static int proc_count = 2;
 
@@ -396,7 +396,7 @@ static void print_memory_summary(void)
     outln(L" MiB");
     out(L"  reserved  : ");
     out_int(boot_reserve_mb + (hog_active ? hog_pages * 4096 / (1024 * 1024) : 0));
-    outln(L" MiB by WCT");
+    outln(L" MiB by CVER");
 }
 
 static UINT64 memory_total_bytes(void)
@@ -431,12 +431,12 @@ static void boot_ok(const char *label)
     ST->BootServices->Stall(120000);
 }
 
-static void draw_wct_logo(void)
+static void draw_cver_logo(void)
 {
     ST->ConOut->SetAttribute(ST->ConOut, 0x09);
     for (int i = 0; i < 5; ++i) {
         out(L"   ");
-        out(wct_logo[i]);
+        out(cver_logo[i]);
         outln(L"");
     }
 }
@@ -445,12 +445,12 @@ static int boot_menu(void)
 {
     clear_graphics();
     ST->ConOut->ClearScreen(ST->ConOut);
-    draw_wct_logo();
+    draw_cver_logo();
     outln(L"");
-    outc(0x0B, L"        WCT-OS LTS 1.0  /  Boot Manager");
+    outc(0x0B, L"        CVEROS LTS 1.0  /  Boot Manager");
     outln(L"");
-    outln(L"  1. WCT-OS LTS 1.0        Full (Linux + Native)");
-    outln(L"  2. WCT-OS Native Only    Native only (No Linux)");
+    outln(L"  1. CVEROS LTS 1.0        Full (Linux + Native)");
+    outln(L"  2. CVEROS Native Only    Native only (No Linux)");
     outln(L"");
     outc(0x0A, L"  Press 1 or 2, Enter for default (1)...");
     outln(L"");
@@ -483,8 +483,8 @@ static void boot_splash(void)
 {
     clear_graphics();
     ST->ConOut->ClearScreen(ST->ConOut);
-    draw_wct_logo();
-    outc(0x0B, L"        WCT-OS LTS 1.0  /  Native Boot");
+    draw_cver_logo();
+    outc(0x0B, L"        CVEROS LTS 1.0  /  Native Boot");
     outln(L"");
     outln(L"");
 
@@ -560,7 +560,7 @@ static void boot_splash(void)
     boot_ok("FAT32 shared volume mounted");
     boot_ok("Native shell ready");
     outln(L"");
-    outc(0x0B, L"  Starting WCT-OS...");
+    outc(0x0B, L"  Starting CVEROS...");
     outln(L"");
     log_save(1);
     ST->BootServices->Stall(3000000);
@@ -615,11 +615,11 @@ static void cmd_mem(CHAR16 *args)
     if (!args[0] || weq(args, L"info")) {
         outln(L"Memory");
         print_memory_summary();
-        out(L"  WCT boot reserve : ");
+        out(L"  CVER boot reserve : ");
         out_int(boot_reserve_mb);
         outln(L" MiB (40% overflow reserve)");
         if (hog_active) {
-            out(L"  WCT hold  : ");
+            out(L"  CVER hold  : ");
             out_int(hog_pages * 4096 / (1024 * 1024));
             outln(L" MiB (mem free to release)");
         }
@@ -1144,7 +1144,7 @@ static int write_bytes(const CHAR16 *path, const char *data, UINTN size)
 static void make_log_path(char *out, UINTN cap, const char *date, int number)
 {
     int n = 0;
-    const char *prefix = "\\WCT-";
+    const char *prefix = "\\CVER-";
     for (int i = 0; prefix[i] && n + 1 < cap; ++i) out[n++] = prefix[i];
     for (int i = 0; date[i] && n + 1 < cap; ++i) out[n++] = date[i];
     if (n + 1 < cap) out[n++] = '-';
@@ -1212,7 +1212,7 @@ static int log_save(int quiet)
 
     static char buffer[32768];
     int n = 0;
-    const char header[] = "WCT-OS LTS 1.0 native log\r\n";
+    const char header[] = "CVEROS LTS 1.0 native log\r\n";
     for (int i = 0; header[i] && n < (int)sizeof(buffer) - 1; ++i) buffer[n++] = header[i];
     const char stamp[] = "date: ";
     for (int i = 0; stamp[i] && n < (int)sizeof(buffer) - 1; ++i) buffer[n++] = stamp[i];
@@ -1349,7 +1349,7 @@ static UINTN read_whole_file(const CHAR16 *path, UINT8 *buffer, UINTN cap)
 
 static int finish_device_path(UINTN prefix)
 {
-    CHAR16 *target = L"\\wct\\bootx64.efi";
+    CHAR16 *target = L"\\CVEROS\\bootx64.efi";
     UINTN node_len = 4 + (wlen(target) + 1) * 2;
     if (prefix + node_len + 4 > sizeof(boot_device_path))
         return 0;
@@ -1663,7 +1663,7 @@ static void cmd_linux(void)
         outc(theme()->error, L"This boot mode has no Linux subsystem.\r\n");
         return;
     }
-    outln(L"Starting WCT-OS Linux compatibility subsystem...");
+    outln(L"Starting CVEROS Linux compatibility subsystem...");
     outln(L"CPython 3.11.2 / nano / zhcon will be available there.");
     if (!build_linux_device_path()) {
         outln(L"linux: could not construct the embedded loader path.");
@@ -1686,7 +1686,7 @@ static void cmd_linux(void)
     {
         EFI_LOADED_IMAGE_PROTOCOL *cli = NULL;
         if (!EFI_IS_ERROR(ST->BootServices->HandleProtocol(child, &loaded_image_guid, (VOID **)&cli)) && cli) {
-            static CHAR16 linux_opts[] = L"console=tty0 initrd=\\wct\\bootx64.initrd.gz";
+            static CHAR16 linux_opts[] = L"console=tty0 initrd=\\CVEROS\\bootx64.initrd.gz";
             cli->LoadOptions = linux_opts;
             cli->LoadOptionsSize = (UINT32)((wlen(linux_opts) + 1) * sizeof(CHAR16));
         }
@@ -1706,7 +1706,7 @@ static void cmd_linux(void)
 
 static void cmd_native(void)
 {
-    outln(L"WCT-OS Native is the primary boot environment.");
+    outln(L"CVEROS Native is the primary boot environment.");
 }
 
 typedef struct {
@@ -1763,8 +1763,8 @@ static void package_command_name(const CHAR16 *file, CHAR16 *out, UINTN cap)
     }
     wcopy(out, cap, file);
     UINTN len = wlen(out);
-    if (len >= 7 && weq(out + len - 7, L".wctpkg")) out[len - 7] = 0;
-    else if (len >= 4 && weq(out + len - 4, L".wct")) out[len - 4] = 0;
+    if (len >= 7 && weq(out + len - 7, L".cverpkg")) out[len - 7] = 0;
+    else if (len >= 4 && weq(out + len - 4, L".cver")) out[len - 4] = 0;
 }
 
 static int list_package_commands(void)
@@ -1806,7 +1806,7 @@ static int list_package_commands(void)
 
 static void cmd_help(void)
 {
-    outc(theme()->accent, L"WCT-OS Native");
+    outc(theme()->accent, L"CVEROS Native");
     outln(L"  commands");
     outln(L"  ----------------------------------------------------------");
     outc(theme()->prompt, L"  help");
@@ -1831,8 +1831,8 @@ static void cmd_help(void)
     outln(L"          change directory");
     outc(theme()->prompt, L"  pwd");
     outln(L"               show current directory");
-    outc(theme()->prompt, L"  run FILE.wct");
-    outln(L"      run a WCT script");
+    outc(theme()->prompt, L"  run FILE.cver");
+    outln(L"      run a CVER script");
     outc(theme()->prompt, L"  echo TEXT");
     outln(L"         print text");
     outc(theme()->prompt, L"  sleep N");
@@ -1881,16 +1881,16 @@ static void cmd_help(void)
     outln(L"            reboot the machine");
     outln(L"  ----------------------------------------------------------");
     outln(L"  Shared FAT32: root is \\, Linux sees it as /fat");
-    outln(L"  Themes: ubuntu  wct  matrix  amber  ice");
+    outln(L"  Themes: ubuntu  cver  matrix  amber  ice");
     outln(L"  Package commands:");
     if (!list_package_commands()) outln(L"  (none installed)");
 }
 
 static void cmd_ver(void)
 {
-    outln(L"WCT-OS Native Shell 1.0");
+    outln(L"CVEROS Native Shell 1.0");
     outln(L"Freestanding C  /  x86_64 UEFI  /  FAT32 shared volume");
-    outln(L"Compatibility subsystem: WCT-OS Linux (CPython 3.11.2)");
+    outln(L"Compatibility subsystem: CVEROS Linux (CPython 3.11.2)");
 }
 
 static void cmd_color(CHAR16 *args)
@@ -1937,10 +1937,10 @@ static void cmd_tty(void)
 
 static void cmd_about(void)
 {
-    outc(theme()->accent, L"WCT-OS LTS 1.0");
+    outc(theme()->accent, L"CVEROS LTS 1.0");
     outln(L"");
     out(L"  Author : ");
-    outc(theme()->prompt, L"aqtwWCT95");
+    outc(theme()->prompt, L"aqtwCVER95");
     outln(L"");
     out(L"  Kernel : ");
     outc(theme()->bright, L"4.0.441");
@@ -2338,7 +2338,7 @@ static void run_script(const CHAR16 *path)
 static void cmd_run(CHAR16 *args)
 {
     if (!args[0]) {
-        outln(L"run: usage: run FILE.wct");
+        outln(L"run: usage: run FILE.cver");
         return;
     }
     run_script(args);
@@ -2603,7 +2603,7 @@ static void cmd_log(CHAR16 *args)
         return;
     }
 
-    outc(theme()->accent, L"WCT-OS logs");
+    outc(theme()->accent, L"CVEROS logs");
     outln(L"  (log info|warn|error TEXT)");
     for (int i = 0; i < log_count; ++i) {
         outc(theme()->dim, L"[");
@@ -2643,7 +2643,7 @@ static void cmd_pid(void)
 {
     out(L"PID ");
     out_int(2);
-    outln(L"  wct-shell  (parent 1: wct-init)");
+    outln(L"  cver-shell  (parent 1: cver-init)");
 }
 
 static void cmd_kill(CHAR16 *args, int sudo)
@@ -2699,8 +2699,8 @@ static void cmd_poweroff(void)
     log_add_level(LOG_WARN, "power", "poweroff requested");
     clear_graphics();
     ST->ConOut->ClearScreen(ST->ConOut);
-    draw_wct_logo();
-    outc(0x0B, L"        WCT-OS LTS 1.0  /  Shutdown");
+    draw_cver_logo();
+    outc(0x0B, L"        CVEROS LTS 1.0  /  Shutdown");
     outln(L"");
     outln(L"");
     outc(0x0A, L"  [ OK ] ");
@@ -2768,7 +2768,7 @@ static int find_package(const CHAR16 *name, CHAR16 *out)
         wcopy(out, 256, path);
         return 1;
     }
-    const CHAR16 *exts[] = { L".wctpkg", L".wct" };
+    const CHAR16 *exts[] = { L".cverpkg", L".cver" };
     for (int e = 0; e < 2; ++e) {
         CHAR16 alt[256];
         wcopy(alt, sizeof(alt) / sizeof(alt[0]), path);
@@ -2891,11 +2891,11 @@ static void cmd_api(CHAR16 *args)
     CHAR16 *sub, *rest, *method, *params;
     split_first(args, &sub, &rest);
     if (!sub[0] || weq(sub, L"list")) {
-        outln(L"WCT-OS Package API");
+        outln(L"CVEROS Package API");
         outln(L"  term.write TEXT     print text to terminal");
         outln(L"  term.color NAME     set text colour");
         outln(L"  term.clear          clear screen, redraw banner");
-        outln(L"  term.banner         redraw WCT-OS banner");
+        outln(L"  term.banner         redraw CVEROS banner");
         outln(L"  term.exec CMD       run any shell command");
         outln(L"  task.list           list native process table");
         outln(L"  task.kill PID       kill process (1/2 protected)");
@@ -2965,7 +2965,7 @@ static void cmd_api(CHAR16 *args)
 }
 
 #include "gui.inc"
-#include "jvm_wct.inc"
+#include "jvm_cver.inc"
 #include "wcde.inc"
 #include "reg.inc"
 
@@ -2974,9 +2974,9 @@ static void print_banner(void)
     UINTN cols = 0, rows = 0;
     ST->ConOut->QueryMode(ST->ConOut, ST->ConOut->Mode->Mode, &cols, &rows);
 
-    draw_wct_logo();
+    draw_cver_logo();
     outln(L"");
-    outc(0x0B, L"   WCT-OS Native 1.0  /  C / x86_64 UEFI / FAT32");
+    outc(0x0B, L"   CVEROS Native 1.0  /  C / x86_64 UEFI / FAT32");
     outln(L"");
     outln(linux_available ? L"   Self-developed native shell / Linux subsystem" : L"   Self-contained native-only build");
     outln(L"");
@@ -3023,7 +3023,7 @@ static void cmd_theme(CHAR16 *args)
             out_ascii(themes[i].name);
             outln(L"");
         }
-        outln(L"  use: theme ubuntu | wct | matrix | amber | ice");
+        outln(L"  use: theme ubuntu | cver | matrix | amber | ice");
         return;
     }
     for (int i = 0; i < 5; ++i) {
@@ -3132,9 +3132,9 @@ static int st_copy(const CHAR16 *src, const CHAR16 *dst) {
     return ok;
 }
 static void st_list(void) {
-    out_ascii("packages in \\wct\\pkgs:\r\n");
+    out_ascii("packages in \\CVEROS\\pkgs:\r\n");
     EFI_FILE_PROTOCOL *d = NULL;
-    if (!open_path(L"\\wct\\pkgs", &d, EFI_FILE_MODE_READ, 0)) { out_ascii("no package source\r\n"); return; }
+    if (!open_path(L"\\CVEROS\\pkgs", &d, EFI_FILE_MODE_READ, 0)) { out_ascii("no package source\r\n"); return; }
     static UINT8 buf[2048];
     for (int g = 0; g < 64; ++g) {
         UINTN sz = sizeof(buf);
@@ -3149,7 +3149,7 @@ static void st_list(void) {
         out_ascii(a);
         CHAR16 tgt[256];
         int k = 0;
-        const CHAR16 *pre = L"\\wct\\apps\\";
+        const CHAR16 *pre = L"\\CVEROS\\apps\\";
         while (pre[k]) { tgt[k] = pre[k]; ++k; }
         for (int j = 0; fi->FileName[j] && k < 250; ++j) tgt[k++] = fi->FileName[j];
         tgt[k] = 0;
@@ -3159,15 +3159,15 @@ static void st_list(void) {
 }
 static void st_install(CHAR16 *name) {
     EFI_FILE_PROTOCOL *ad = NULL;
-    if (!EFI_IS_ERROR(ROOT->Open(ROOT, &ad, L"wct\\apps", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, EFI_FILE_DIRECTORY)) && ad) ad->Close(ad);
+    if (!EFI_IS_ERROR(ROOT->Open(ROOT, &ad, L"CVEROS\\apps", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, EFI_FILE_DIRECTORY)) && ad) ad->Close(ad);
     while (*name == ' ') ++name;
     if (!*name) { out_ascii("usage: store install <file>\r\n"); return; }
     CHAR16 src[256], dst[256];
-    int k = 0; const CHAR16 *pre = L"\\wct\\pkgs\\";
+    int k = 0; const CHAR16 *pre = L"\\CVEROS\\pkgs\\";
     while (pre[k]) { src[k] = pre[k]; ++k; }
     int j = 0; for (; name[j] && k < 250; ++j) src[k++] = name[j];
     src[k] = 0;
-    k = 0; pre = L"\\wct\\apps\\";
+    k = 0; pre = L"\\CVEROS\\apps\\";
     while (pre[k]) { dst[k] = pre[k]; ++k; }
     for (j = 0; name[j] && k < 250; ++j) dst[k++] = name[j];
     dst[k] = 0;
@@ -3210,7 +3210,7 @@ static int del_dir_contents(EFI_FILE_PROTOCOL *dir)
 static void wcde_uninstall(void)
 {
     EFI_FILE_PROTOCOL *d = NULL;
-    if (!open_path(L"\\wct\\java", &d, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0) || !d) {
+    if (!open_path(L"\\CVEROS\\java", &d, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0) || !d) {
         out_ascii("not installed\r\n");
         return;
     }
@@ -3222,7 +3222,7 @@ static void wcde_uninstall(void)
 static void st_remove(CHAR16 *name) {
     while (*name == ' ') ++name;
     CHAR16 dst[256];
-    int k = 0; const CHAR16 *pre = L"\\wct\\apps\\";
+    int k = 0; const CHAR16 *pre = L"\\CVEROS\\apps\\";
     while (pre[k]) { dst[k] = pre[k]; ++k; }
     for (int j = 0; name[j] && k < 250; ++j) dst[k++] = name[j];
     dst[k] = 0;
@@ -3462,7 +3462,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st)
     if (!BOOT_ROOT) BOOT_ROOT = ROOT;
     if (ROOT) {
         EFI_FILE_PROTOCOL *linux_loader = NULL;
-        if (open_path(L"\\wct\\bootx64.efi", &linux_loader, EFI_FILE_MODE_READ, 0)) {
+        if (open_path(L"\\CVEROS\\bootx64.efi", &linux_loader, EFI_FILE_MODE_READ, 0)) {
             linux_available = 1;
             linux_loader->Close(linux_loader);
         }
@@ -3488,7 +3488,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st)
 
     if (ROOT) {
         EFI_FILE_PROTOCOL *ag = NULL;
-        if (open_path(L"\\wct\\autogui", &ag, EFI_FILE_MODE_READ, 0)) {
+        if (open_path(L"\\CVEROS\\autogui", &ag, EFI_FILE_MODE_READ, 0)) {
             ag->Close(ag);
             cmd_gui();
         }
@@ -3498,7 +3498,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *st)
     for (;;) {
         ST->ConOut->EnableCursor(ST->ConOut, TRUE);
         outc(theme()->dim, L"tty1 ");
-        outc(theme()->prompt, L"wct@wct-os");
+        outc(theme()->prompt, L"cver@cveros");
         outc(theme()->accent, L":");
         outc(theme()->dim, CWD);
         outc(theme()->dim, L"> ");

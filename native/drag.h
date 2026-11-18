@@ -1,5 +1,5 @@
-#ifndef WCT_DRAG_H
-#define WCT_DRAG_H
+#ifndef CVER_DRAG_H
+#define CVER_DRAG_H
 
 /* 依赖底层：gfx_fb, gfx_stride, gfx_w, gfx_h, gfx_present_rect, gfx_cursor, cursor_restore_bg, ST->BootServices */
 
@@ -97,4 +97,4 @@ static void dframe_move(int nx, int ny, int old_cx, int old_cy) {
     gfx_present_rect(mouse_x, mouse_y, 10, 16); 
 }
 
-#endif // WCT_DRAG_H
+#endif // CVER_DRAG_H

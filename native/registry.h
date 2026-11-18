@@ -1,8 +1,8 @@
-#ifndef WCT_REGISTRY_H
-#define WCT_REGISTRY_H
+#ifndef CVER_REGISTRY_H
+#define CVER_REGISTRY_H
 
 /* 
- * WCT-OS 应用注册中心
+ * CVEROS 应用注册中心
  * 如果你想添加新软件，请务必在 apps.h 中实现它并实例化 AppDef，
  * 然后在这里加上 &APP_你的应用名 即可！
  */
@@ -19,4 +19,4 @@ static const AppDef* g_apps[] = {
 
 const int APP_COUNT = sizeof(g_apps) / sizeof(g_apps[0]);
 
-#endif // WCT_REGISTRY_H
+#endif // CVER_REGISTRY_H

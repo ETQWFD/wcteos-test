@@ -1,5 +1,5 @@
-#ifndef WCT_DESKTOP_H
-#define WCT_DESKTOP_H
+#ifndef CVER_DESKTOP_H
+#define CVER_DESKTOP_H
 
 /* 依赖外部定义的 g_apps 和 APP_COUNT */
 extern const AppDef* g_apps[];
@@ -10,7 +10,7 @@ static int ui_menu = 0, ui_desk_ctx = 0, ui_desk_x = 0, ui_desk_y = 0;
 
 static void ui_draw_menu(void) {
     int w = 236, h = 9 * 26 + 44, x = 6, y = (int)gfx_h - 34 - h - 6; if (y < 44) y = 44;
-    gfx_fill(x, y, w, h, gfx_panel); gfx_border(x, y, w, h, gfx_accent); gfx_fill(x + 2, y + 2, w - 4, 26, gfx_top); gfx_text_w(x + 10, y + 8, L"WCT-OS", gfx_accent);
+    gfx_fill(x, y, w, h, gfx_panel); gfx_border(x, y, w, h, gfx_accent); gfx_fill(x + 2, y + 2, w - 4, 26, gfx_top); gfx_text_w(x + 10, y + 8, L"CVEROS", gfx_accent);
     const CHAR16 *items[9] = { T(S_FILES), T(S_TERM), T(S_SETTINGS), T(S_TASKMGR), T(S_RUN), T(S_ABOUT), T(S_LOCK), T(S_REBOOT), T(S_SHUTDOWN) };
     for (int i = 0; i < 9; ++i) { int by = y + 34 + i * 26; if (ui_hit(x + 4, by, w - 8, 24)) gfx_fill(x + 4, by, w - 8, 24, gfx_top); gfx_text_w(x + 16, by + 4, items[i], gfx_text_c); }
 }
@@ -59,7 +59,7 @@ static int desktop_icon_click(void) {
 }
 
 static void draw_desktop(void) {
-    wct_ui_bg(); gfx_fill(0, 0, (int)gfx_w, 2, gfx_accent);
+    cver_ui_bg(); gfx_fill(0, 0, (int)gfx_w, 2, gfx_accent);
     
     draw_desktop_icons();
     

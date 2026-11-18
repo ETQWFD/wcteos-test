@@ -1,14 +1,14 @@
 /*
- * jvm.c —— wctj：WCTEOS 自带 Java 运行时
+ * jvm.c —— cverj：CVEROS 自带 Java 运行时
  *
  * 只依赖 jvm.h 里的三个宿主能力，不调用 libc、不调用 UEFI 协议，
- * 因此同一份代码既能进内核（jvm_wct.inc），也能在 Linux 上做单元测试。
+ * 因此同一份代码既能进内核（jvm_cver.inc），也能在 Linux 上做单元测试。
  *
  * 支持范围（实测覆盖，见 java-port/README.md）：
  *   - class 文件解析：常量池全部标签、字段/方法、Code/BootstrapMethods/ConstantValue
  *   - 字节码：整数/长整数/引用/数组/字符串/分支/异常表/invokedynamic(StringConcatFactory)
  *   - 原生类：System、PrintStream、String、StringBuilder、Integer、Long、Math、Object
- *   - WCT 扩展：wct.WctRuntime（调用 WCTEOS 内核 API）
+ *   - CVER 扩展：cver.CverRuntime（调用 CVEROS 内核 API）
  *
  * 不支持：浮点运算（按位保留，仅打印）、Lambda/MethodHandle 调用、反射、线程、GC 压缩。
  */
@@ -204,28 +204,28 @@ static const char *decode_utf8(const ju1 *bytes, ju4 len, char *dst, int cap) {
 
 static int parse_class(KClass *c, const ju1 *img, int len) {
     if (len < 32 || img[0] != 0xCA || img[1] != 0xFE || img[2] != 0xBA || img[3] != 0xBE) {
-        fail(-10, "wctj: not a Java class file\n");
+        fail(-10, "cverj: not a Java class file\n");
         return 0;
     }
     ju2 minor = rd2(img + 4), major = rd2(img + 6);
     if (major < 45 || major > 72) {
-        fail(-11, "wctj: unsupported class version\n");
+        fail(-11, "cverj: unsupported class version\n");
         return 0;
     }
     (void)minor;
     int p = 10;                       /* magic(4)+minor(2)+major(2)+cp_count(2) */
     c->cp_count = rd2(img + 8);
-    if (c->cp_count > MAX_CP) { fail(-12, "wctj: constant pool too large\n"); return 0; }
+    if (c->cp_count > MAX_CP) { fail(-12, "cverj: constant pool too large\n"); return 0; }
     for (int i = 1; i < c->cp_count; ++i) {
-        if (p >= len) { fail(-13, "wctj: truncated constant pool\n"); return 0; }
+        if (p >= len) { fail(-13, "cverj: truncated constant pool\n"); return 0; }
         ju1 tag = img[p++];
         c->cp[i].tag = tag;
         switch (tag) {
         case 1: {
             ju2 sl = rd2(img + p); p += 2;
-            if (p + (int)sl > len) { fail(-13, "wctj: truncated utf8\n"); return 0; }
+            if (p + (int)sl > len) { fail(-13, "cverj: truncated utf8\n"); return 0; }
             char *buf = arena_alloc((int)sl + 1, 1);
-            if (!buf) { fail(-20, "wctj: out of memory\n"); return 0; }
+            if (!buf) { fail(-20, "cverj: out of memory\n"); return 0; }
             decode_utf8(img + p, sl, buf, (int)sl + 1);
             c->cp[i].s = buf;
             c->cp[i].slen = sl;
@@ -245,7 +245,7 @@ static int parse_class(KClass *c, const ju1 *img, int len) {
         case 15:
             c->cp[i].a = (ju2)img[p]; c->cp[i].b = rd2(img + p + 1); p += 3; break;
         default:
-            fail(-14, "wctj: unknown constant pool tag\n");
+            fail(-14, "cverj: unknown constant pool tag\n");
             return 0;
         }
     }
@@ -410,7 +410,7 @@ static KClass *load_class(const char *name) {
     if (!H->read_class(HC, full, &buf, &blen) || !buf || blen <= 0) {
         char msg[280];
         int k = 0;
-        const char *a = "wctj: cannot find class ";
+        const char *a = "cverj: cannot find class ";
         while (*a && k < 200) msg[k++] = *a++;
         for (int i = 0; name[i] && k < 240; ++i) msg[k++] = name[i];
         msg[k++] = ' '; msg[k++] = '('; 
@@ -440,7 +440,7 @@ static KClass *load_class(const char *name) {
 /* 对象 / 数组 / 字符串                                                */
 /* ------------------------------------------------------------------ */
 static Obj *obj_new(int type, KClass *c) {
-    if (nobjs >= MAX_OBJ) { fail(-21, "wctj: object table full\n"); return 0; }
+    if (nobjs >= MAX_OBJ) { fail(-21, "cverj: object table full\n"); return 0; }
     Obj *o = &objs[nobjs];
     jmemset(o, 0, sizeof(*o));
     o->type = type;
@@ -714,7 +714,7 @@ static void print_typed(char t, ji8 v) {
 /* 返回 1 表示是原生方法且已处理（结果写 result） */
 /* ------------------------------------------------------------------ */
 
-#ifdef WCTJ_TRACE
+#ifdef CVERJ_TRACE
 static void tr(const char *a, const char *b, const char *c, int n) {
     char t[200]; int k = 0;
     while (*a && k < 180) t[k++] = *a++;
@@ -1020,10 +1020,10 @@ static int call_native(const char *cn, const char *name, const char *desc,
             *ret_slots = 1;
             return 1;
         }
-        if (jstreq(name, "exit")) { *ret_slots = 0; g_err = 0; g_err_text = "wctj: System.exit\n"; return 1; }
+        if (jstreq(name, "exit")) { *ret_slots = 0; g_err = 0; g_err_text = "cverj: System.exit\n"; return 1; }
         if (jstreq(name, "gc")) { *ret_slots = 0; return 1; }
         if (jstreq(name, "getProperty")) {
-            Obj *s = new_string("WCTEOS", 6);
+            Obj *s = new_string("CVEROS", 6);
             result[0] = s ? obj_ref(s) : 0; *ret_slots = 1; return 1;
         }
         if (jstreq(name, "arraycopy")) { *ret_slots = 0; return 1; }
@@ -1371,10 +1371,10 @@ static int call_native(const char *cn, const char *name, const char *desc,
         if (jstreq(name, "currentThread")) { result[0] = 0; *ret_slots = 1; return 1; }
     }
 
-    /* ---- WCTEOS 扩展：wct/WctRuntime ---- */
-    if (jstreq(cn, "wct/WctRuntime")) {
+    /* ---- CVEROS 扩展：cver/CverRuntime ---- */
+    if (jstreq(cn, "cver/CverRuntime")) {
         if (jstreq(name, "api")) {
-            /* wct.WctRuntime.api("term.write", "text") */
+            /* cver.CverRuntime.api("term.write", "text") */
             Obj *m = ref_obj(args[0]);
             Obj *p = ref_obj(args[1]);
             const char *ms = 0, *ps = 0; int ml = 0, pl = 0;
@@ -1389,7 +1389,7 @@ static int call_native(const char *cn, const char *name, const char *desc,
             *ret_slots = 0; return 1;
         }
         if (jstreq(name, "version") || jstreq(name, "osName")) {
-            Obj *n = new_string("WCTEOS", 6);
+            Obj *n = new_string("CVEROS", 6);
             result[0] = n ? obj_ref(n) : 0; *ret_slots = 1; return 1;
         }
         if (jstreq(name, "println")) {
@@ -1764,14 +1764,14 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
         }
         return -2;
     }
-    if (g_depth >= MAX_DEPTH) { fail(-22, "wctj: stack overflow (deep recursion)\n"); return -1; }
+    if (g_depth >= MAX_DEPTH) { fail(-22, "cverj: stack overflow (deep recursion)\n"); return -1; }
 
     ji8 locals[MAX_SLOTS];
     ji8 stack[MAX_SLOTS];
     for (int zi = 0; zi < MAX_SLOTS; ++zi) { locals[zi] = 0; stack[zi] = 0; }
 
     for (int i = 0; i < nargs && i < MAX_SLOTS; ++i) locals[i] = args[i];
-#ifdef WCTJ_TRACE
+#ifdef CVERJ_TRACE
     { char t[80]; int k=0; const char *pre="ARGS n="; while(*pre) t[k++]=*pre++; t[k++]=(char)('0'+nargs); t[k++]=' '; t[k++]='a'; t[k++]='0'; t[k++]='='; 
       ji8 v = nargs>0?args[0]:0; char digits[24]; int dn=0; if(!v) digits[dn++]='0'; else { ji8 uv=v<0?-v:v; while(uv&&dn<20){digits[dn++]=(char)('0'+uv%10); uv/=10;} } if(v<0)t[k++]='-';
       while(dn) t[k++]=digits[--dn]; t[k++]=' '; t[k++]='l'; t[k++]='0'; t[k++]='=';
@@ -1796,7 +1796,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
 
     while (pc >= 0 && pc < clen) {
         ju1 op = code[pc++];
-#ifdef WCTJ_TRACE
+#ifdef CVERJ_TRACE
         if (jstreq(m->name, "main")) {
             char t[64]; int k = 0; const char *pre = "OP ";
             while (*pre) t[k++] = *pre++;
@@ -1982,34 +1982,34 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
         case 0x95: case 0x96: case 0x97: case 0x98:
             /* fcmp/dcmp 没有真实浮点支持。旧实现静默 push(0)，会让紧跟的
                if_icmplt/if_icmpge 走错分支（比报错更糟）。现在明确失败。 */
-            fail(-27, "wctj: float/double compare is not supported\n"); rc = -1; goto done;
-        case 0x99: { int v = (int)pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifeq */
-        case 0x9A: { int v = (int)pop(); if (v != 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifne */
-        case 0x9B: { int v = (int)pop(); if (v < 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* iflt */
-        case 0x9C: { int v = (int)pop(); if (v >= 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifge */
-        case 0x9D: { int v = (int)pop(); if (v > 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0x9E: { int v = (int)pop(); if (v <= 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0x9F: { int b = (int)pop(), a = (int)pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0xA0: { int b = (int)pop(), a = (int)pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0xA1: { int b = (int)pop(), a = (int)pop(); if (a < b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0xA2: { int b = (int)pop(), a = (int)pop(); if (a >= b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0xA3: { int b = (int)pop(), a = (int)pop(); if (a > b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0xA4: { int b = (int)pop(), a = (int)pop(); if (a <= b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0xA5: { ji8 b = pop(); ji8 a = pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0xA6: { ji8 b = pop(); ji8 a = pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
-        case 0xA7: { { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } break; }  /* goto */
+            fail(-27, "cverj: float/double compare is not supported\n"); rc = -1; goto done;
+        case 0x99: { int v = (int)pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifeq */
+        case 0x9A: { int v = (int)pop(); if (v != 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifne */
+        case 0x9B: { int v = (int)pop(); if (v < 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* iflt */
+        case 0x9C: { int v = (int)pop(); if (v >= 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifge */
+        case 0x9D: { int v = (int)pop(); if (v > 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0x9E: { int v = (int)pop(); if (v <= 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0x9F: { int b = (int)pop(), a = (int)pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA0: { int b = (int)pop(), a = (int)pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA1: { int b = (int)pop(), a = (int)pop(); if (a < b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA2: { int b = (int)pop(), a = (int)pop(); if (a >= b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA3: { int b = (int)pop(), a = (int)pop(); if (a > b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA4: { int b = (int)pop(), a = (int)pop(); if (a <= b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA5: { ji8 b = pop(); ji8 a = pop(); if (a == b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA6: { ji8 b = pop(); ji8 a = pop(); if (a != b) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; }
+        case 0xA7: { { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } break; }  /* goto */
         case 0xA8: { /* jsr：保存返回地址到局部变量后跳转 */
-            if (pc + 3 > clen) { fail(-26, "wctj: jsr truncated\n"); rc = -1; goto done; }
+            if (pc + 3 > clen) { fail(-26, "cverj: jsr truncated\n"); rc = -1; goto done; }
             int bo_ = (int)(short)rd2(code + pc);
             ju1 li_ = code[pc + 2];
             ji8 retn_ = (ji8)(pc + 3);
             if (li_ < MAX_SLOTS) locals[li_] = retn_;
             pc = (pc - 1) + bo_;
-            if (pc < 0 || pc >= clen) { fail(-26, "wctj: jsr target out of code\n"); rc = -1; goto done; }
+            if (pc < 0 || pc >= clen) { fail(-26, "cverj: jsr target out of code\n"); rc = -1; goto done; }
             break;
         }
         case 0xA9: { ju1 idx = code[pc++]; ji8 t = LSLOT(idx);
-            if (t < 0 || t >= clen) { fail(-25, "wctj: ret target out of code\n"); rc = -1; goto done; }
+            if (t < 0 || t >= clen) { fail(-25, "cverj: ret target out of code\n"); rc = -1; goto done; }
             pc = (int)t; break; } /* ret */
         case 0xAA: { /* tableswitch */
             int base = pc - 1;
@@ -2020,13 +2020,13 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             int high = (int)rd4(code + q); q += 4;
             int key = (int)pop();
             if (q + 12 > clen || high < low || high - low > 65536) {
-                fail(-28, "wctj: tableswitch malformed\n"); rc = -1; goto done;
+                fail(-28, "cverj: tableswitch malformed\n"); rc = -1; goto done;
             }
             int tgt;
             if (key < low || key > high) tgt = base + (int)def;
             else { int off = (int)rd4(code + q + (key - low) * 4); tgt = base + off; }
             if (q + (key - low) * 4 + 4 > clen || tgt < 0 || tgt >= clen) {
-                fail(-28, "wctj: tableswitch target out of code\n"); rc = -1; goto done;
+                fail(-28, "cverj: tableswitch target out of code\n"); rc = -1; goto done;
             }
             pc = tgt;
             break;
@@ -2039,7 +2039,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             int npairs = (int)rd4(code + q); q += 4;
             int key = (int)pop();
             if (npairs < 0 || q + npairs * 8 > clen) {
-                fail(-29, "wctj: lookupswitch malformed\n"); rc = -1; goto done;
+                fail(-29, "cverj: lookupswitch malformed\n"); rc = -1; goto done;
             }
             int target = (int)def;
             for (int i = 0; i < npairs; ++i) {
@@ -2049,7 +2049,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             }
             int tgt = base + target;
             if (tgt < 0 || tgt >= clen) {
-                fail(-29, "wctj: lookupswitch target out of code\n"); rc = -1; goto done;
+                fail(-29, "cverj: lookupswitch target out of code\n"); rc = -1; goto done;
             }
             pc = tgt;
             break;
@@ -2073,7 +2073,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
                 Obj *o = obj_new(4, 0); push(o ? (ji8)obj_ref(o) : 0); break;
             }
             KClass *fc = find_class(cn);
-            if (!fc && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "wct/", 3)) fc = load_class(cn);
+            if (!fc && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "cver/", 3)) fc = load_class(cn);
             if (fc) {
                 for (int i = 0; i < fc->nfields; ++i) {
                     Field *f = &fc->fields[i];
@@ -2093,7 +2093,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             dcmp(c, k->b, &fname, &fdesc);
             ji8 v = pop();
             KClass *fc = find_class(cn);
-            if (!fc && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "wct/", 3)) fc = load_class(cn);
+            if (!fc && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "cver/", 3)) fc = load_class(cn);
             if (fc) for (int i = 0; i < fc->nfields; ++i) {
                 Field *f = &fc->fields[i];
                 if (f->is_static && jstreq(f->name, fname) && jstreq(f->desc, fdesc)) { fc->stat_vals[f->slot] = v; break; }
@@ -2164,7 +2164,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             int rslots = 0;
             /* 原生优先 */
             KClass *decl = find_class(cn);
-            if (!decl && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "wct/", 3))
+            if (!decl && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "cver/", 3))
                 decl = load_class(cn);
             if (call_native(cn, mname, mdesc, a, nargs, &r, &rslots)) {
                 if (rslots >= 1) push(r);
@@ -2195,7 +2195,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
                 if (jstreq(mname, "<init>")) { break; }
                 char msg[200];
                 int kk = 0;
-                const char *pre = "wctj: NoSuchMethod ";
+                const char *pre = "cverj: NoSuchMethod ";
                 while (*pre && kk < 150) msg[kk++] = *pre++;
                 for (int i = 0; cn && cn[i] && kk < 180; ++i) msg[kk++] = cn[i];
                 msg[kk++] = '.'; 
@@ -2228,7 +2228,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             int rslots = 0;
             KClass *decl = find_class(cn);
             tr("STATIC", cn, mname, nargs);
-            if (!decl && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "wct/", 3)) decl = load_class(cn);
+            if (!decl && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "cver/", 3)) decl = load_class(cn);
             if (call_native(cn, mname, mdesc, a, nargs, &r, &rslots)) {
                 if (rslots >= 1) push(r);
                 if (rslots >= 2) push(0);
@@ -2239,7 +2239,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             if (!m2) m2 = resolve_virtual(decl, mname, mdesc, 0);
             if (!m2) {
                 if (jstreq(mname, "toString")) { push(0); break; }
-                fail(-23, "wctj: NoSuchMethod (static)\n");
+                fail(-23, "cverj: NoSuchMethod (static)\n");
                 rc = -1; goto done;
             }
             tr("CALL", mname, mdesc, nargs);
@@ -2256,7 +2256,7 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             int handled = 0;
             ji8 indy_r = 0;
             if (!do_indy(c, idx, &indy_r, &handled) || !handled) {
-                fail(-24, "wctj: invokedynamic unsupported (use javac -XDstringConcat=inline)\n");
+                fail(-24, "cverj: invokedynamic unsupported (use javac -XDstringConcat=inline)\n");
                 rc = -1; goto done;
             }
             push(indy_r);
@@ -2266,8 +2266,8 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             ju2 idx = rd2(code + pc); pc += 2;
             const char *cn = cp_class_name(c, idx);
             KClass *k = find_class(cn);
-            if (!k && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "wct/", 3)) k = load_class(cn);
-            if (!k && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "wct/", 3)) { rc = -1; goto done; }
+            if (!k && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "cver/", 3)) k = load_class(cn);
+            if (!k && !jstrneq_prefix(cn, "java/", 5) && !jstrneq_prefix(cn, "cver/", 3)) { rc = -1; goto done; }
             Obj *o = obj_new(1, k);
             if (o && is_exception_class(cn)) { o->type = 5; o->exc_cls = cn; }
             if (o && !k && (jstreq(cn, "java/lang/StringBuilder") || jstreq(cn, "java/lang/StringBuffer"))) {
@@ -2359,14 +2359,14 @@ static int exec_method(KClass *c, Method *m, ji8 *args, int nargs, ji8 *result) 
             push(o ? (ji8)obj_ref(o) : 0);
             break;
         }
-        case 0xC6: { ji8 v = pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifnull */
-        case 0xC7: { ji8 v = pop(); if (v != 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "wctj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifnonnull */
+        case 0xC6: { ji8 v = pop(); if (v == 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifnull */
+        case 0xC7: { ji8 v = pop(); if (v != 0) { int bo = (int)(short)rd2(code + pc); pc = (pc - 1) + bo; if (pc < 0 || pc >= clen) { fail(-24, "cverj: branch target out of code"); rc = -1; goto done; } } else pc += 2; break; } /* ifnonnull */
         case 0xC8: { { int bo = (int)rd4(code + pc); pc = (pc - 1) + bo; } break; }        /* goto_w */
         default:
             {
                 char msg[96];
                 int k = 0;
-                const char *pre = "wctj: unsupported opcode ";
+                const char *pre = "cverj: unsupported opcode ";
                 while (*pre) msg[k++] = *pre++;
                 msg[k++] = '0'; msg[k++] = 'x';
                 int hi = (op >> 4) & 15, lo = op & 15;
@@ -2408,12 +2408,12 @@ int jvm_run(const JvmHost *host, void *ctx, const char *class_path,
     arena_cap = MAX_ARENA;
     arena_used = 0;
     arena_base = (char *)H->alloc(HC, arena_cap);
-    if (!arena_base) { fail(-20, "wctj: cannot allocate heap\n"); return -20; }
+    if (!arena_base) { fail(-20, "cverj: cannot allocate heap\n"); return -20; }
 
     g_out_cap = 4096;
     g_out = (char *)arena_alloc(g_out_cap, 8);
     g_out_len = 0;
-    if (!g_out) { fail(-20, "wctj: cannot allocate output buffer\n"); return -20; }
+    if (!g_out) { fail(-20, "cverj: cannot allocate output buffer\n"); return -20; }
 
     /* 路径分隔符：主类路径里出现哪个就用哪个 */
     for (const char *q = class_path; *q; ++q) if (*q == '/') { g_sep = '/'; break; }
@@ -2456,7 +2456,7 @@ int jvm_run(const JvmHost *host, void *ctx, const char *class_path,
         /* 也接受 main() */
         mainm = find_method(c, "main", "()V");
     }
-    if (!mainm) { fail(-30, "wctj: main() not found\n"); return -30; }
+    if (!mainm) { fail(-30, "cverj: main() not found\n"); return -30; }
 
     ji8 args[2];
     if (jstreq(mainm->desc, "([Ljava/lang/String;)V")) {

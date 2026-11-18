@@ -1,6 +1,6 @@
 #include "qr_fix.h"
-/*WCT-OS
-Copyright (C) 2026  aqtwWCT95
+/*CVEROS
+Copyright (C) 2026  aqtwCVER95
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published
@@ -443,7 +443,7 @@ static void gui_loop(void) {
             if (!EFI_IS_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) {
                 if (k.UnicodeChar == '\r' || k.UnicodeChar == '\n') {
                     lock_input[lock_len] = 0;
-                    if (scmp(lock_input, "wct") == 0) {
+                    if (scmp(lock_input, "cver") == 0) {
                         screen_locked = 0; lock_len = 0; lock_input[0] = 0;
                         force_full = 1; dirty = 1;
                     } else {
@@ -568,13 +568,13 @@ static void cmd_bsod(void) {
     UINT32 white = gfx_rgb(245, 250, 255);
     UINT32 dim = gfx_rgb(185, 210, 240);
     gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, bg);
-    gfx_text(56, 46, "wcteos :(", white);
+    gfx_text(56, 46, "cveros :(", white);
     gfx_text_w_s(56, 84, L"正在分析错误", white, 2);
 
     int barx = (int)gfx_w - 500, bary = 90, barw = 300, barh = 26;
     int cx = (int)gfx_w / 2;
     gfx_text_w(cx - 210, (int)gfx_h / 2 - 70, L"系统出错，已中止运行。", white);
-    gfx_text_w(cx - 210, (int)gfx_h / 2 - 36, L"错误代码: WCT-BSOD-0x00000001", dim);
+    gfx_text_w(cx - 210, (int)gfx_h / 2 - 36, L"错误代码: CVER-BSOD-0x00000001", dim);
     gfx_text_w(cx - 210, (int)gfx_h / 2 - 12, L"问题位置: 内核 / 图形系统", dim);
     gfx_text_w(cx - 260, (int)gfx_h / 2 + 24, L"读完错误信息之后自动重启，蓝屏是为了保护文件数据。", dim);
 
@@ -648,7 +648,7 @@ static void ins_ui(int sel, int n, UINT64 *mb, int hot, const char *status) {
     int cx = (int)gfx_w / 2 - 380, cy = 90, cw = 760, ch = (int)gfx_h - 200;
     gfx_fill(cx, cy, cw, ch, card);
     gfx_fill(cx, cy, cw, 46, gfx_rgb(16, 84, 150));
-    gfx_text_w(cx + 22, cy + 12, L"wcteos 安装程序", gfx_rgb(255, 255, 255));
+    gfx_text_w(cx + 22, cy + 12, L"cveros 安装程序", gfx_rgb(255, 255, 255));
     gfx_text(cx + cw - 34, cy + 12, "X", gfx_rgb(220, 235, 250));
     gfx_text(cx + 22, cy + 66, "Select target disk", gfx_rgb(40, 60, 90));
     gfx_text(cx + cw - 150, cy + 66, (char *)g_build_str, gfx_rgb(90, 110, 140));
@@ -756,7 +756,7 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
     *(UINT32 *)(sec + 44) = 2; *(UINT16 *)(sec + 48) = 1; *(UINT16 *)(sec + 50) = 6;
     sec[64] = 0x80; sec[66] = 0x29;
     *(UINT32 *)(sec + 67) = 0x57435421;
-    const char *lab = "WCTEOS     "; for (int i = 0; i < 11; ++i) sec[71 + i] = lab[i];
+    const char *lab = "CVEROS     "; for (int i = 0; i < 11; ++i) sec[71 + i] = lab[i];
     const char *fs = "FAT32   "; for (int i = 0; i < 8; ++i) sec[82 + i] = fs[i];
     sec[510] = 0x55; sec[511] = 0xAA;
     if (ins_write(b, m, pstart, 1, sec) != 0) return 0;
@@ -775,7 +775,7 @@ static int ins_format_disk(int idx, EFI_HANDLE *disks, UINT64 *mb, int *pct) {
     *(UINT32 *)(sec + 0) = 0x0FFFFFF8; *(UINT32 *)(sec + 4) = 0x0FFFFFFF; *(UINT32 *)(sec + 8) = 0x0FFFFFFF;
     for (int f = 0; f < 2; ++f) if (ins_write(b, m, pstart + 32 + (UINT64)f * fatsz, 1, sec) != 0) return 0;
     for (int i = 0; i < 512; ++i) sec[i] = 0;
-    const char *vl = "WCTEOS     "; for (int i = 0; i < 11; ++i) sec[i] = vl[i]; sec[11] = 0x08;
+    const char *vl = "CVEROS     "; for (int i = 0; i < 11; ++i) sec[i] = vl[i]; sec[11] = 0x08;
     UINT64 root = pstart + 32 + 2ULL * fatsz;
     if (ins_write(b, m, root, 1, sec) != 0) return 0;
     *pct = 90; ins_progress("Verifying...", *pct);
@@ -910,16 +910,16 @@ static int fs_install_files(int *pct) {
 }
 
 
-/* 把安装介质 \wct\pkgs 下的所有包复制到目标盘同名目录 */
+/* 把安装介质 \cver\pkgs 下的所有包复制到目标盘同名目录 */
 static int ins_copy_pkgs(EFI_FILE_PROTOCOL *dstroot) {
     EFI_FILE_PROTOCOL *src = NULL;
-    if (EFI_IS_ERROR(ROOT->Open(ROOT, &src, L"wct", 1, 0)) || !src) return 0;
+    if (EFI_IS_ERROR(ROOT->Open(ROOT, &src, L"CVEROS", 1, 0)) || !src) return 0;
     EFI_FILE_PROTOCOL *srcp = NULL;
     int ok = 0;
     if (!EFI_IS_ERROR(src->Open(src, &srcp, L"pkgs", 1, 0)) && srcp) {
         EFI_FILE_PROTOCOL *dw = NULL, *dwp = NULL;
         UINT64 mode = EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE;
-        dstroot->Open(dstroot, &dw, L"wct", mode, EFI_FILE_DIRECTORY);
+        dstroot->Open(dstroot, &dw, L"CVEROS", mode, EFI_FILE_DIRECTORY);
         if (dw) {
             dw->Open(dw, &dwp, L"pkgs", mode, EFI_FILE_DIRECTORY);
             if (dwp) {
@@ -957,12 +957,12 @@ static int ins_copy_pkgs(EFI_FILE_PROTOCOL *dstroot) {
 
     /* 复制 Linux 子系统三件套：内核 / initramfs / 可写根镜像 */
     {
-        static const CHAR16 *names[3] = { L"wct\\bootx64.efi", L"wct\\bootx64.initrd.gz", L"wct\\rootfs.img" };
+        static const CHAR16 *names[3] = { L"CVEROS\\bootx64.efi", L"CVEROS\\bootx64.initrd.gz", L"CVEROS\\rootfs.img" };
         for (int k = 0; k < 3; ++k) {
             EFI_FILE_PROTOCOL *sf2 = NULL, *dw2 = NULL, *df2 = NULL;
             if (EFI_IS_ERROR(ROOT->Open(ROOT, &sf2, (CHAR16 *)names[k], 1, 0)) || !sf2) continue;
             UINT64 m2 = EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE;
-            dstroot->Open(dstroot, &dw2, L"wct", m2, EFI_FILE_DIRECTORY);
+            dstroot->Open(dstroot, &dw2, L"CVEROS", m2, EFI_FILE_DIRECTORY);
             if (dw2) {
                 const CHAR16 *leaf = (CHAR16 *)names[k];
                 for (const CHAR16 *p2 = leaf; *p2; ++p2) if (*p2 == L'\\') leaf = p2 + 1;
@@ -999,14 +999,14 @@ static int ins_load_core(void) {
         dp = (EFI_DEVICE_PATH_PROTOCOL *)((UINT8 *)dp + l);
     }
     p[used] = 0x04; p[used + 1] = 0x04; UINT16 l2 = 4 + 24; p[used + 2] = (UINT8)l2; p[used + 3] = (UINT8)(l2 >> 8);
-    const char *fp = "\\wct\\install.efi"; int q = 0;
+    const char *fp = "\\CVEROS\\install.efi"; int q = 0;
     while (fp[q]) { p[used + 4 + q * 2] = (UINT8)fp[q]; p[used + 5 + q * 2] = 0; ++q; }
     p[used + 4 + q * 2] = 0; p[used + 5 + q * 2] = 0;
     p[used + 4 + (q + 1) * 2] = 0x7F; p[used + 5 + (q + 1) * 2] = 0xFF;
     p[used + 6 + (q + 1) * 2] = 0x04; p[used + 7 + (q + 1) * 2] = 0x00;
     EFI_HANDLE ih = NULL;
     if (EFI_IS_ERROR(ST->BootServices->LoadImage(FALSE, g_image, (EFI_DEVICE_PATH_PROTOCOL *)node, NULL, 0, &ih)) || !ih) return 0;
-    ins_progress("Installing wcteos Pro...", 86);
+    ins_progress("Installing cveros Pro...", 86);
     ST->BootServices->StartImage(ih, NULL, NULL);
     return 1;
 }
@@ -1092,7 +1092,7 @@ static int ins_register_boot(EFI_HANDLE dh) {
     static UINT8 opt[700]; UINTN o = 6;
     opt[0] = 1; opt[1] = 0; opt[2] = 0; opt[3] = 0;
     opt[4] = (UINT8)u; opt[5] = (UINT8)(u >> 8);
-    const CHAR16 *desc = L"wcteos Pro";
+    const CHAR16 *desc = L"cveros Pro";
     for (int i = 0; i <= 11; ++i) { opt[o++] = (UINT8)desc[i]; opt[o++] = 0; }
     for (UINTN i = 0; i < u; ++i) opt[o++] = path[i];
     if (EFI_IS_ERROR(setv(L"Boot0000", &nv_guid, 7, o, opt))) return 0;
@@ -1118,7 +1118,7 @@ static void cmd_installer(void) {
     int msel = 0;
     for (;;) {
         gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(12, 30, 64));
-        gfx_text(60, 70, "wcteos Pro Setup", gfx_rgb(255, 255, 255));
+        gfx_text(60, 70, "cveros Pro Setup", gfx_rgb(255, 255, 255));
         gfx_text(60, 110, "Up/Down to select, Enter to continue, Esc to quit.", gfx_rgb(200, 210, 230));
         for (int i = 0; i < 2; ++i) {
             int y = 200 + i * 64;
@@ -1146,7 +1146,7 @@ static void cmd_installer(void) {
         gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(245, 247, 250));
         gfx_fill(0, 0, (int)gfx_w, 64, gfx_rgb(20, 60, 120));
         gfx_text(40, 24, "Setup - License Agreement", gfx_rgb(255, 255, 255));
-        gfx_text(40, 110, "wcteos Pro 1.0 - evaluation and use terms", gfx_rgb(30, 40, 60));
+        gfx_text(40, 110, "cveros Pro 1.0 - evaluation and use terms", gfx_rgb(30, 40, 60));
         gfx_text(40, 150, "1. This software is provided as-is, without warranty.", gfx_rgb(60, 70, 90));
         gfx_text(40, 178, "2. Installing will erase the selected target disk.", gfx_rgb(60, 70, 90));
         gfx_text(40, 206, "3. Back up your data before continuing.", gfx_rgb(60, 70, 90));
@@ -1291,7 +1291,7 @@ static void cmd_gstore(void) {
     ST->ConOut->EnableCursor(ST->ConOut, FALSE);
     static char names[16][64]; int n = 0;
     EFI_FILE_PROTOCOL *d = NULL;
-    if (open_path(L"\\wct\\pkgs", &d, EFI_FILE_MODE_READ, 0)) {
+    if (open_path(L"\\CVEROS\\pkgs", &d, EFI_FILE_MODE_READ, 0)) {
         static UINT8 b2[2048];
         while (n < 16) {
             UINTN sz = sizeof(b2);
@@ -1309,15 +1309,15 @@ static void cmd_gstore(void) {
     for (;;) {
         gfx_fill(0, 0, (int)gfx_w, (int)gfx_h, gfx_rgb(245, 247, 250));
         gfx_fill(0, 0, (int)gfx_w, 64, gfx_rgb(20, 60, 120));
-        gfx_text(40, 24, "wcteos Store", gfx_rgb(255, 255, 255));
+        gfx_text(40, 24, "cveros Store", gfx_rgb(255, 255, 255));
         gfx_text(40, 90, "Up/Down select   Enter install/remove   Esc quit", gfx_rgb(60, 70, 90));
-        if (!n) gfx_text(40, 150, "No packages found in \\wct\\pkgs", gfx_rgb(120, 60, 60));
+        if (!n) gfx_text(40, 150, "No packages found in \\CVEROS\\pkgs", gfx_rgb(120, 60, 60));
         for (int i = 0; i < n; ++i) {
             int y = 140 + i * 40;
             gfx_fill(40, y, (int)gfx_w - 80, 32, sel == i ? gfx_rgb(40, 110, 200) : gfx_rgb(230, 234, 240));
             gfx_text(56, y + 8, names[i], sel == i ? gfx_rgb(255, 255, 255) : gfx_rgb(30, 40, 60));
             CHAR16 tgt[256]; int k = 0;
-            const CHAR16 *pre = L"\\wct\\apps\\";
+            const CHAR16 *pre = L"\\CVEROS\\apps\\";
             while (pre[k]) { tgt[k] = pre[k]; ++k; }
             for (int j = 0; names[i][j] && k < 250; ++j) tgt[k++] = (CHAR16)names[i][j];
             tgt[k] = 0;
@@ -1330,7 +1330,7 @@ static void cmd_gstore(void) {
             EFI_FILE_PROTOCOL *probe_f = NULL;
             int inst = 0;
             if (is_w) {
-                if (open_path(L"\\wct\\java", &probe_f, EFI_FILE_MODE_READ, 0)) { probe_f->Close(probe_f); inst = 1; }
+                if (open_path(L"\\CVEROS\\java", &probe_f, EFI_FILE_MODE_READ, 0)) { probe_f->Close(probe_f); inst = 1; }
             } else {
                 inst = st_exists(tgt);
             }
@@ -1349,7 +1349,7 @@ static void cmd_gstore(void) {
             for (; names[sel][q] && q < 78; ++q) nm[q] = (CHAR16)names[sel][q];
             nm[q] = 0;
             CHAR16 tgt[256]; int k2 = 0;
-            const CHAR16 *pre = L"\\wct\\apps\\";
+            const CHAR16 *pre = L"\\CVEROS\\apps\\";
             while (pre[k2]) { tgt[k2] = pre[k2]; ++k2; }
             for (int j = 0; nm[j] && k2 < 250; ++j) tgt[k2++] = nm[j];
             tgt[k2] = 0;
@@ -1361,7 +1361,7 @@ static void cmd_gstore(void) {
             }
             if (sel_is_wcde) {
                 EFI_FILE_PROTOCOL *pf = NULL;
-                if (open_path(L"\\wct\\java", &pf, EFI_FILE_MODE_READ, 0) && pf) { pf->Close(pf); st_remove(nm); }
+                if (open_path(L"\\CVEROS\\java", &pf, EFI_FILE_MODE_READ, 0) && pf) { pf->Close(pf); st_remove(nm); }
                 else st_install(nm);
             } else if (st_exists(tgt)) st_remove(nm);
             else st_install(nm);

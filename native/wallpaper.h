@@ -1,9 +1,9 @@
-#ifndef WCT_WALLPAPER_H
-#define WCT_WALLPAPER_H
+#ifndef CVER_WALLPAPER_H
+#define CVER_WALLPAPER_H
 
 static int ui_wp = 1; // 壁纸索引
 
-static void wct_ui_bg(void) { 
+static void cver_ui_bg(void) { 
     int W = (int)gfx_w, H = (int)gfx_h; 
     if (ui_wp == 1) { // 渐变
         int rows = H / 2 + 1; 

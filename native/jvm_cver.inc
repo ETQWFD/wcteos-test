@@ -1,10 +1,10 @@
 /*
- * jvm_wct.inc —— jvm.c 的 WCTEOS 内核适配层
+ * jvm_cver.inc —— jvm.c 的 CVEROS 内核适配层
  *
  * 提供三件事：
  *   1. 把 JVM 的文本输出接到内核控制台（终端/GUI 终端都能捕获）
  *   2. 用内核的 FAT32 文件接口读 .class
- *   3. 把 wct.WctRuntime.api(...) 转给内核命令分发器（接入 WCT API）
+ *   3. 把 cver.CverRuntime.api(...) 转给内核命令分发器（接入 CVER API）
  */
 #include "jvm.h"
 
@@ -116,15 +116,15 @@ static void cmd_java(CHAR16 *args)
     split_first(args, &file, &rest);
 
     if (!file[0] || weq(file, L"-help") || weq(file, L"--help") || weq(file, L"-h")) {
-        outln(L"wctj - WCTEOS built-in Java runtime");
-        outln(L"usage: java CLASS [args...]      e.g. java Hello  |  java \\wct\\java\\Hello.class");
+        outln(L"cverj - CVEROS built-in Java runtime");
+        outln(L"usage: java CLASS [args...]      e.g. java Hello  |  java \\CVEROS\\java\\Hello.class");
         outln(L"       java -version              show runtime identity");
-        outln(L"notes: bare names are looked up under \\wct\\java. No -cp / -jar / modules.");
+        outln(L"notes: bare names are looked up under \\CVEROS\\java. No -cp / -jar / modules.");
         return;
     }
 
     if (weq(file, L"-version") || weq(file, L"--version") || weq(file, L"-v")) {
-        outln(L"wctj 25.1.0  (WCTEOS Java runtime, UEFI native)");
+        outln(L"cverj 25.1.0  (CVEROS Java runtime, UEFI native)");
         outln(L"accepts class files produced by javac 25 (major version 69)");
         outln(L"no classpath, no jar, no modules, no threads, no JIT");
         return;
@@ -151,7 +151,7 @@ static void cmd_java(CHAR16 *args)
     if (has_dir) {
         for (UINTN i = 0; i < an; ++i) full[fn++] = apath[i];
     } else {
-        const char *pre = "\\wct\\java\\";
+        const char *pre = "\\CVEROS\\java\\";
         for (int i = 0; pre[i]; ++i) full[fn++] = pre[i];
         for (UINTN i = 0; i < an; ++i) full[fn++] = apath[i];
     }

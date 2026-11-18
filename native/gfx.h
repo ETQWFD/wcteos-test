@@ -1,8 +1,8 @@
-#ifndef WCT_GFX_H
-#define WCT_GFX_H
+#ifndef CVER_GFX_H
+#define CVER_GFX_H
 
 #include "font8x16.h"
-#include "wct_zh.h"
+#include "cver_zh.h"
 
 /* ---------- 图形全局状态 ---------- */
 static EFI_GRAPHICS_OUTPUT_PROTOCOL *gfx;
@@ -92,4 +92,4 @@ static void gfx_present(void) {
         memcpy(gfx_hw + y * gfx_stride, gfx_back + y * gfx_stride, gfx_w * 4); 
 }
 
-#endif // WCT_GFX_H
+#endif // CVER_GFX_H

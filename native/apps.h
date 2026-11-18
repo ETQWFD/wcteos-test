@@ -1,5 +1,5 @@
-#ifndef WCT_APPS_H
-#define WCT_APPS_H
+#ifndef CVER_APPS_H
+#define CVER_APPS_H
 
 /* =========================================================
    1. 终端 (Terminal)
@@ -182,7 +182,7 @@ static void task_click(GuiWin *w, int lx, int ly) {
 }
 
 static void about_draw(GuiWin *w) {
-    gfx_text(w->x + 20, w->y + 48, "WCT-OS 1.0 LTS", gfx_accent); gfx_text_w(w->x + 20, w->y + 76, T(S_KERNEL), gfx_text_c); gfx_text_w(w->x + 20, w->y + 96, T(S_ARCH), gfx_text_c);
+    gfx_text(w->x + 20, w->y + 48, "CVEROS 1.0 LTS", gfx_accent); gfx_text_w(w->x + 20, w->y + 76, T(S_KERNEL), gfx_text_c); gfx_text_w(w->x + 20, w->y + 96, T(S_ARCH), gfx_text_c);
     gfx_text_w(w->x + 20, w->y + 116, T(S_CPU), gfx_dim); gfx_text_w(w->x + 20, w->y + 156, T(S_BUILD), gfx_dim); gfx_text_w(w->x + 20, w->y + 176, T(S_INSTALL), gfx_dim); gfx_text_w(w->x + 20, w->y + 200, T(S_GUI_BY), gfx_accent);
 }
 
@@ -204,11 +204,26 @@ static void run_click(GuiWin *w, int lx, int ly) {
     if (lx >= w->w - 108 && lx < w->w - 24 && ly >= w->h - 40 && ly < w->h - 14) { win_close(w->type); return; }
 }
 
-/* =========================================================
-   5. 计算器 (Calculator) - 插件演示
-   ========================================================= */
+// 🚀 新增：专门处理运行框输入的回调
+static void run_key(GuiWin *w, EFI_INPUT_KEY key) {
+    if (key.UnicodeChar == '\r' || key.UnicodeChar == '\n' || key.ScanCode == 0x0D) {
+        CHAR16 wide[96]; for (int i = 0; i <= ui_len; ++i) wide[i] = (CHAR16)ui_input[i];
+        ui_len = 0; ui_input[0] = 0; win_close(w->type);
+        int t = win_open(WIN_TERM);
+        if (t >= 0) { GuiWin *tw = &wins[t]; hist_pos = hist_count; active_tty = 2; gfx_active = 1; gfx_term_target = tw; gui_cap_len = 0; gui_capture = 1; process_command(wide); gui_capture = 0; gui_capture_flush(tw); gfx_term_target = NULL; active_tty = 1; term_putc(tw, '\n'); }
+    } 
+    else if (key.UnicodeChar == 8) { 
+        if (ui_len) ui_input[--ui_len] = 0; 
+    }
+    else if (key.UnicodeChar >= 32 && key.UnicodeChar < 127 && ui_len < 95) { 
+        ui_input[ui_len++] = (char)key.UnicodeChar; 
+        ui_input[ui_len] = 0; 
+    }
+}
 
-// 简单的表达式求值器（只支持加减乘除）
+/* =========================================================
+   5. 计算器 (Calculator)
+   ========================================================= */
 static int calc_eval(const char *s) {
     int res = 0, curr = 0;
     char op = '+';
@@ -216,7 +231,7 @@ static int calc_eval(const char *s) {
         if (s[i] >= '0' && s[i] <= '9') {
             curr = curr * 10 + (s[i] - '0');
         }
-        if (s[i] == '+' || s[i] == '-' || s[i] == '*' || s[i] == '/' || s[i] == 0) {
+        if (s[i] == '+' || s[i] == '-' || s[i] == '*' || s[i] == '/') {
             if (op == '+') res += curr;
             else if (op == '-') res -= curr;
             else if (op == '*') res *= curr;
@@ -225,21 +240,21 @@ static int calc_eval(const char *s) {
             curr = 0;
         }
     }
+    if (op == '+') res += curr;
+    else if (op == '-') res -= curr;
+    else if (op == '*') res *= curr;
+    else if (op == '/') { if (curr != 0) res /= curr; else res = 0; }
     return res;
 }
 
 static void calc_draw(GuiWin *w) {
-    // 显示区域
     gfx_fill(w->x + 20, w->y + 45, w->w - 40, 40, gfx_rgb(240, 240, 240));
     gfx_border(w->x + 20, w->y + 45, w->w - 40, 40, gfx_rgb(100, 100, 100));
     gfx_text(w->x + 30, w->y + 58, w->input, gfx_rgb(0, 0, 0));
     
-    // 闪烁光标
-    if ((w->trow++ / 20) % 2 == 0) { // 利用 trow 当作简易计时器
-        gfx_fill(w->x + 30 + w->input_len * 8, w->y + 56, 2, 18, gfx_rgb(0, 0, 0));
-    }
+    // 修复：去掉了 trow 的无限自增，改成固定光标
+    gfx_fill(w->x + 30 + w->input_len * 8, w->y + 56, 2, 18, gfx_rgb(0, 0, 0));
 
-    // 绘制 16 个按钮 (4x4)
     const CHAR16 *btns[16] = { 
         L"7", L"8", L"9", L"/", 
         L"4", L"5", L"6", L"*", 
@@ -268,12 +283,11 @@ static void calc_click(GuiWin *w, int lx, int ly) {
         L"0", L"C", L"=", L"+" 
     };
 
-    if (idx == 13) { // 清空 (C)
+    if (idx == 13) { 
         w->input_len = 0;
         w->input[0] = 0;
-    } else if (idx == 14) { // 计算 (=)
+    } else if (idx == 14) { 
         int result = calc_eval(w->input);
-        // 将结果转回字符串
         int n = 0, v = result;
         if (v == 0) { w->input[n++] = '0'; }
         else {
@@ -284,7 +298,7 @@ static void calc_click(GuiWin *w, int lx, int ly) {
         }
         w->input[n] = 0;
         w->input_len = n;
-    } else { // 追加字符
+    } else { 
         if (w->input_len < 20) {
             w->input[w->input_len++] = (char)btns[idx][0];
             w->input[w->input_len] = 0;
@@ -292,9 +306,8 @@ static void calc_click(GuiWin *w, int lx, int ly) {
     }
 }
 
-
 /* =========================================================
-   🚀 应用实例注册 (在这里添加新应用即可)
+   应用实例注册
    ========================================================= */
 static const AppDef APP_FILES = { WIN_FILES, L"文件管理器", L"Files", 600, 400, ico_folder, files_draw, files_click, NULL };
 static const AppDef APP_TERM  = { WIN_TERM,  L"终端",       L"Terminal", 600, 400, ico_term, term_draw, NULL, term_key };
@@ -302,6 +315,6 @@ static const AppDef APP_EDIT  = { WIN_EDIT,  L"文本编辑器", L"Editor", 600,
 static const AppDef APP_SET   = { WIN_SET,   L"设置",       L"Settings", 600, 380, ico_set, set_draw, set_click, NULL };
 static const AppDef APP_TASK  = { WIN_TASK,  L"任务管理器", L"TaskMgr", 600, 360, ico_task, task_draw, task_click, NULL };
 static const AppDef APP_ABOUT = { WIN_ABOUT, L"关于",       L"About", 560, 320, ico_info, about_draw, NULL, NULL };
-static const AppDef APP_RUN   = { WIN_RUN,   L"运行",       L"Run", 520, 176, ico_info, run_draw, run_click, term_key };
+static const AppDef APP_RUN   = { WIN_RUN,   L"运行",       L"Run", 520, 176, ico_info, run_draw, run_click, run_key };
 static const AppDef APP_CALC = { 100, L"计算器", L"Calculator", 320, 400, ico_calc, calc_draw, calc_click, NULL };
-#endif // WCT_APPS_H
+#endif // CVER_APPS_H

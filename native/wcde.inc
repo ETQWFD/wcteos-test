@@ -1,5 +1,5 @@
 /*
- * wcde.inc —— WCTEOS 模块容器（.wcde）读取/安装
+ * wcde.inc —— CVEROS 模块容器（.wcde）读取/安装
  *
  * 容器格式（ASCII 清单 + 二进制载荷，freestanding 下无需解压库）：
  *
@@ -7,9 +7,9 @@
  *   name=java\n
  *   version=25.0.4\n
  *   command=java\n
- *   author=WCTEOS\n
+ *   author=CVEROS\n
  *   desc=Java 25 runtime module\n
- *   root=\wct\java\n
+ *   root=\cver\java\n
  *   files=6\n
  *   --\n
  *   Hello.class\t1135\n
@@ -31,7 +31,7 @@ static void wcde_line(const char **pp, char *out, UINTN cap)
 
 static int wcde_mkdirs(CHAR16 *path)
 {
-    /* 逐级创建，例如 \wct\java\wct */
+    /* 逐级创建，例如 \cver\java\cver */
     CHAR16 tmp[256];
     UINTN n = 0;
     for (UINTN i = 0; path[i] && i + 1 < 256; ++i) tmp[i] = path[i];
@@ -162,7 +162,7 @@ static int wcde_install(const CHAR16 *path)
             nfiles = acc;                      /* 包内声明的文件数，用于校验 */
         }
     }
-    if (!root_ascii[0]) scopy(root_ascii, sizeof(root_ascii), "\\wct\\java");
+    if (!root_ascii[0]) scopy(root_ascii, sizeof(root_ascii), "\\CVEROS\\java");
 
     CHAR16 wroot[200];
     UINTN rn = 0;
@@ -248,7 +248,7 @@ static void cmd_wcde(CHAR16 *args)
     CHAR16 *sub, *rest;
     split_first(args, &sub, &rest);
     if (!sub[0] || weq(sub, L"help")) {
-        outln(L"wcde: WCTEOS module container (.wcde)");
+        outln(L"wcde: CVEROS module container (.wcde)");
         outln(L"  wcde install FILE   unpack module files to its root dir");
         outln(L"  wcde info FILE      show module manifest");
         outln(L"  wcde list           list installed .wcde modules");

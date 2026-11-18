@@ -9,7 +9,7 @@
  *   reg delete <key>                        删除整个键
  *   reg save                                强制写回磁盘
  *
- * 持久化到 \wct\registry.dat（文本：key<TAB>name<TAB>type<TAB>data 每行一条）。
+ * 持久化到 \cver\registry.dat（文本：key<TAB>name<TAB>type<TAB>data 每行一条）。
  * 从只读介质（光驱）启动时改动留在内存，并明确提示不会落盘。
  */
 
@@ -115,21 +115,21 @@ static int reg_put(const char *key, const char *name, const char *type, const ch
 
 static void reg_seed_defaults(void)
 {
-    reg_put("HKLM\\SYSTEM", "ProductName", "SZ", "wcteos Pro");
+    reg_put("HKLM\\SYSTEM", "ProductName", "SZ", "CVEROS Pro");
     reg_put("HKLM\\SYSTEM", "Build", "SZ", BUILD_HASH);
     reg_put("HKLM\\SYSTEM", "CurrentVersion", "SZ", "1.0");
     reg_put("HKLM\\SYSTEM", "Architecture", "SZ", "x86_64 UEFI");
     reg_put("HKLM\\SYSTEM", "FileSystem", "SZ", "FAT32");
     reg_put("HKLM\\HARDWARE\\DESCRIPTION", "System", "SZ", "UEFI Firmware");
     reg_put("HKLM\\HARDWARE\\DESCRIPTION\\BIOS", "Vendor", "SZ", "EDK II");
-    reg_put("HKLM\\SOFTWARE\\WctEOS\\Java", "Version", "SZ", "25.1.0");
-    reg_put("HKLM\\SOFTWARE\\WctEOS\\Java", "Root", "SZ", "\\wct\\java");
-    reg_put("HKLM\\SOFTWARE\\WctEOS\\Java", "Engine", "SZ", "wctj interpreter");
-    reg_put("HKLM\\SOFTWARE\\WctEOS\\Linux", "Kernel", "SZ", "5.15.0-203-generic");
-    reg_put("HKLM\\SOFTWARE\\WctEOS\\Linux", "Rootfs", "SZ", "\\wct\\rootfs.img");
-    reg_put("HKLM\\SOFTWARE\\WctEOS\\Linux", "Distro", "SZ", "Alpine 3.19");
-    reg_put("HKLM\\SOFTWARE\\WctEOS\\Installer", "PartitionType", "DWORD", "0xEF");
-    reg_put("HKLM\\SOFTWARE\\WctEOS\\Installer", "EspStartLba", "DWORD", "2048");
+    reg_put("HKLM\\SOFTWARE\\CVEROS\\Java", "Version", "SZ", "25.1.0");
+    reg_put("HKLM\\SOFTWARE\\CVEROS\\Java", "Root", "SZ", "\\CVEROS\\java");
+    reg_put("HKLM\\SOFTWARE\\CVEROS\\Java", "Engine", "SZ", "cverj interpreter");
+    reg_put("HKLM\\SOFTWARE\\CVEROS\\Linux", "Kernel", "SZ", "5.15.0-203-generic");
+    reg_put("HKLM\\SOFTWARE\\CVEROS\\Linux", "Rootfs", "SZ", "\\CVEROS\\rootfs.img");
+    reg_put("HKLM\\SOFTWARE\\CVEROS\\Linux", "Distro", "SZ", "Alpine 3.19");
+    reg_put("HKLM\\SOFTWARE\\CVEROS\\Installer", "PartitionType", "DWORD", "0xEF");
+    reg_put("HKLM\\SOFTWARE\\CVEROS\\Installer", "EspStartLba", "DWORD", "2048");
     reg_put("HKCU\\Environment", "TEMP", "SZ", "\\temp");
     reg_put("HKCU\\Console", "FontSize", "DWORD", "80x25");
     g_reg_dirty = 0;
@@ -159,7 +159,7 @@ static void reg_load(void)
     g_reg_n = 0;
 
     EFI_FILE_PROTOCOL *f = NULL;
-    if (!ROOT || EFI_IS_ERROR(ROOT->Open(ROOT, &f, L"\\wct\\registry.dat", EFI_FILE_MODE_READ, 0)) || !f) {
+    if (!ROOT || EFI_IS_ERROR(ROOT->Open(ROOT, &f, L"\\CVEROS\\registry.dat", EFI_FILE_MODE_READ, 0)) || !f) {
         reg_seed_defaults();
         return;
     }
@@ -207,11 +207,11 @@ static int reg_save(void)
     UINT64 mode = EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE;
     /* 先删掉旧文件：EFI_FILE 没有 SetSize，短写入会留下尾部残数据 */
     EFI_FILE_PROTOCOL *old = NULL;
-    if (!EFI_IS_ERROR(ROOT->Open(ROOT, &old, L"\\wct\\registry.dat", EFI_FILE_MODE_READ, 0)) && old)
+    if (!EFI_IS_ERROR(ROOT->Open(ROOT, &old, L"\\CVEROS\\registry.dat", EFI_FILE_MODE_READ, 0)) && old)
         old->Delete(old);            /* Delete 同时关闭句柄 */
 
     EFI_FILE_PROTOCOL *rf = NULL;
-    if (EFI_IS_ERROR(ROOT->Open(ROOT, &rf, L"\\wct\\registry.dat", mode, 0x20)) || !rf) return 0;
+    if (EFI_IS_ERROR(ROOT->Open(ROOT, &rf, L"\\CVEROS\\registry.dat", mode, 0x20)) || !rf) return 0;
 
     static char buf[REG_KLEN + REG_NLEN + REG_TLEN + REG_DLEN + 8];
     for (int i = 0; i < REG_MAX; ++i) {
@@ -238,7 +238,7 @@ static void reg_auto_save(void)
 {
     if (!g_reg_dirty) return;
     if (reg_save()) {
-        outc(theme()->accent, L"reg: saved \\wct\\registry.dat\r\n");
+        outc(theme()->accent, L"reg: saved \\CVEROS\\registry.dat\r\n");
     } else {
         outc(theme()->error, L"reg: volume is read-only, change kept in memory only\r\n");
     }
@@ -407,7 +407,7 @@ static void reg_cmd_delete(char *rest)
 static void reg_cmd_enum(void)
 {
     reg_load();
-    out_ascii("\r\nRegistration database: \\wct\\registry.dat\r\n");
+    out_ascii("\r\nRegistration database: \\CVEROS\\registry.dat\r\n");
     out_ascii("Entries: ");
     out_int((UINT64)g_reg_n);
     out_ascii(" of ");

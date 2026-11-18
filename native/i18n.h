@@ -1,5 +1,5 @@
-#ifndef WCT_I18N_H
-#define WCT_I18N_H
+#ifndef CVER_I18N_H
+#define CVER_I18N_H
 
 #include "efi.h"
 
@@ -36,23 +36,23 @@ static const CHAR16 *i18n_zh[S_COUNT] = {
     L"主题颜色", L"紫", L"绿", L"矩阵绿", L"琥珀", L"蓝", L"纸片",
     L"壁纸", L"纯色", L"渐变", L"网格", L"动态", L"纸纹", L"星夜",
     L"已加载", L"未找到",
-    L"系统信息", L"WCT-OS 1.0 LTS  |  WCT 原生内核  |  x86_64 UEFI",
+    L"系统信息", L"CVEROS 1.0 LTS  |  CVER 原生内核  |  x86_64 UEFI",
     L"语言", L"中文", L"English", L"关闭",
     L"系统属性",
-    L"内核：WCT UEFI 原生内核",
+    L"内核：CVER UEFI 原生内核",
     L"架构：x86_64",
     L"处理器：", L"磁盘：", L"编译：2026-11-10  |  api: 1",
-    L"安装时间：见 \\wct\\install.txt",
-    L"GUI: WCT Native Window Manager",
+    L"安装时间：见 \\CVEROS\\install.txt",
+    L"GUI: CVER Native Window Manager",
     L"名称", L"类型", L"状态", L"详情",
     L"进程：", L"选中后按结束进程。",
     L"新建进程", L"结束进程",
-    L"WCT-OS 已锁定", L"点击鼠标解锁",
+    L"CVEROS 已锁定", L"点击鼠标解锁",
     L"运行", L"运行（管理员）",
     L"wtr 终端 | wtcer 属性",
     L"管理员：开", L"管理员：关", L"确定", L"取消",
     L"桌面", L"刷新桌面", L"新建文件夹", L"新建文本文档",
-    L"GUI by aqtwWCT95",
+    L"GUI by CVEROS",
 };
 
 static const CHAR16 *i18n_en[S_COUNT] = {
@@ -66,27 +66,27 @@ static const CHAR16 *i18n_en[S_COUNT] = {
     L"Theme", L"Purple", L"Green", L"Matrix", L"Amber", L"Blue", L"Paper",
     L"Wallpaper", L"Solid", L"Gradient", L"Grid", L"Dynamic", L"Paper", L"Starry",
     L"Loaded", L"Not found",
-    L"System info", L"WCT-OS 1.0 LTS  |  WCT native kernel  |  x86_64 UEFI",
+    L"System info", L"CVEROS 1.0 LTS  |  CVER native kernel  |  x86_64 UEFI",
     L"Language", L"中文", L"English", L"Close",
     L"System Properties",
-    L"Kernel: WCT UEFI native kernel",
+    L"Kernel: CVER UEFI native kernel",
     L"Arch: x86_64",
     L"CPU :", L"Disks:", L"Build: 2026-11-10  |  api: 1",
-    L"Installed: see \\wct\\install.txt",
-    L"GUI: WCT Native Window Manager",
+    L"Installed: see \\CVEROS\\install.txt",
+    L"GUI: CVER Native Window Manager",
     L"Name", L"Type", L"Status", L"Detail",
     L"Procs:", L"Select row to end process.",
     L"New Process", L"End Process",
-    L"WCT-OS locked", L"Click mouse to unlock",
+    L"CVEROS locked", L"Click mouse to unlock",
     L"Run", L"Run (Admin)",
     L"wtr terminal | wtcer about",
     L"Admin: On", L"Admin: Off", L"OK", L"Cancel",
     L"Desktop", L"Refresh Desktop", L"New Folder", L"New Text File",
-    L"GUI by aqtwWCT95",
+    L"GUI by CVEROS",
 };
 
 /* 语言标志位和宏 */
 static int ui_lang = 0;
 #define T(id) (ui_lang ? i18n_en[(id)] : i18n_zh[(id)])
 
-#endif // WCT_I18N_H
+#endif // CVER_I18N_H

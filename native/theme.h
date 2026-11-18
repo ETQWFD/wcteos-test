@@ -1,5 +1,5 @@
-#ifndef WCT_THEME_H
-#define WCT_THEME_H
+#ifndef CVER_THEME_H
+#define CVER_THEME_H
 
 extern int theme_index;
 

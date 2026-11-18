@@ -1,5 +1,5 @@
-/*WCT-OS
-Copyright (C) 2026  aqtwWCT95
+/*CVEROS
+Copyright (C) 2026  aqtwCVER95
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published
@@ -15,8 +15,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>
 */
 
-#ifndef WCT_NATIVE_EFI_H
-#define WCT_NATIVE_EFI_H
+#ifndef CVER_NATIVE_EFI_H
+#define CVER_NATIVE_EFI_H
 
 #include <stdint.h>
 #include <stddef.h>

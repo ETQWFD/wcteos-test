@@ -1,5 +1,5 @@
-#ifndef WCT_APP_API_H
-#define WCT_APP_API_H
+#ifndef CVER_APP_API_H
+#define CVER_APP_API_H
 
 typedef struct GuiWin GuiWin;
 
